@@ -66,26 +66,23 @@ export async function getDockerInfo(): Promise<object | null> {
 }
 
 /**
- * Pull the runner image if not present
+ * Pull the runner image if not present for the specified platform
+ * Note: Docker can have the same image for multiple platforms, so we need
+ * to check the specific platform, not just if the image tag exists.
  */
 export async function pullRunnerImage(
   architecture: string = 'amd64'
 ): Promise<void> {
   const d = initDocker();
+  const platform = `linux/${architecture}`;
+  const platformTag = `${RUNNER_IMAGE}-${architecture}`;
   
-  // Check if image exists
-  try {
-    await d.getImage(RUNNER_IMAGE).inspect();
-    console.log(`Image ${RUNNER_IMAGE} already exists`);
-    return;
-  } catch {
-    // Image doesn't exist, pull it
-  }
-  
-  console.log(`Pulling image ${RUNNER_IMAGE} for ${architecture}...`);
+  // Always pull with platform specification to ensure we get the right architecture
+  // Docker will use cached layers if available
+  console.log(`Pulling image ${RUNNER_IMAGE} for ${platform}...`);
   
   return new Promise((resolve, reject) => {
-    d.pull(RUNNER_IMAGE, { platform: `linux/${architecture}` }, (err: Error | null, stream: NodeJS.ReadableStream | undefined) => {
+    d.pull(RUNNER_IMAGE, { platform }, (err: Error | null, stream: NodeJS.ReadableStream | undefined) => {
       if (err) {
         reject(err);
         return;
@@ -168,8 +165,11 @@ export async function createDockerRunner(
   
   updateRunnerStatus.run('configuring', runnerId);
   
+  const platform = `linux/${architecture}`;
+  
   try {
-    // Create container
+    // Create container with platform specification
+    // dockerode passes platform as a query parameter to the Docker API
     const container = await d.createContainer({
       Image: RUNNER_IMAGE,
       name: `action-packer-${runnerId}`,
@@ -182,7 +182,8 @@ export async function createDockerRunner(
         'action-packer.runner-id': runnerId,
         'action-packer.runner-name': name,
       },
-      platform: `linux/${architecture}`,
+      // @ts-expect-error - dockerode types don't include platform but the API supports it
+      platform,
     });
     
     // Update container ID
