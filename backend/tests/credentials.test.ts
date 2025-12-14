@@ -2,7 +2,7 @@
  * Tests for credentials API routes
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import request from 'supertest';
 import { app, server } from '../src/index.js';
 import db from '../src/db/schema.js';
