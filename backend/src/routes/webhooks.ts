@@ -255,8 +255,8 @@ webhooksRouter.post('/github', async (req: Request, res: Response) => {
       return;
     }
     
-    // Verify signature
-    const rawBody = JSON.stringify(req.body);
+    // Verify signature using raw body (captured by middleware for accurate verification)
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody?.toString() || JSON.stringify(req.body);
     if (!verifyHmacSignature(rawBody, signature, webhook.secret)) {
       console.warn(`[webhook] Invalid signature for delivery ${deliveryId}`);
       res.status(401).json({ error: 'Invalid signature' });

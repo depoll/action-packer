@@ -11,6 +11,15 @@ import { createGitHubClient, type GitHubScope } from '../services/github.js';
 
 export const credentialsRouter = Router();
 
+// Type guard for SQLite errors
+interface SqliteError extends Error {
+  code: string;
+}
+
+function isSqliteError(error: unknown): error is SqliteError {
+  return error instanceof Error && 'code' in error && typeof (error as SqliteError).code === 'string';
+}
+
 type CreateCredentialBody = {
   name: string;
   type?: 'pat' | 'github_app';
@@ -162,7 +171,7 @@ credentialsRouter.post('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Failed to create credential:', error);
     // Check for UNIQUE constraint violation
-    if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (isSqliteError(error) && error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       res.status(409).json({ error: 'A credential for this target already exists' });
       return;
     }

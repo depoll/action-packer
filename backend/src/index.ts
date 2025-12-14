@@ -51,6 +51,12 @@ export function broadcast(type: string, data: unknown): void {
 
 // Middleware
 app.use(cors());
+// Capture raw body for webhook signature verification
+app.use('/api/webhooks', express.json({
+  verify: (req, _res, buf) => {
+    (req as express.Request & { rawBody: Buffer }).rawBody = buf;
+  }
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

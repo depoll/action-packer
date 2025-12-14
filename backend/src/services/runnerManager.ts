@@ -86,8 +86,15 @@ async function downloadFile(url: string, destPath: string): Promise<void> {
         const redirectUrl = response.headers.location;
         if (redirectUrl) {
           file.close();
-          fs.unlink(destPath).catch(() => {});
-          downloadFile(redirectUrl, destPath).then(resolve).catch(reject);
+          file.on('close', async () => {
+            try {
+              await fs.unlink(destPath).catch(() => {});
+              await downloadFile(redirectUrl, destPath);
+              resolve();
+            } catch (err) {
+              reject(new Error(`Redirected download failed: ${err instanceof Error ? err.message : String(err)}`));
+            }
+          });
           return;
         }
       }

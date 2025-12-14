@@ -245,7 +245,9 @@ function RunnerRow({
         {runner.error_message && (
           <div className="text-xs text-red-400 mt-1 flex items-center gap-1">
             <AlertCircle className="h-3 w-3" />
-            {runner.error_message.slice(0, 50)}...
+            {runner.error_message.length > 50
+              ? `${runner.error_message.slice(0, 50)}...`
+              : runner.error_message}
           </div>
         )}
       </td>

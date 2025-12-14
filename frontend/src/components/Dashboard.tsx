@@ -3,7 +3,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { Server, Activity, AlertCircle, CheckCircle, Clock, Cpu } from 'lucide-react';
+import { Server, Activity, AlertCircle, CheckCircle, Clock, Cpu, Key, Layers } from 'lucide-react';
 import { runnersApi, poolsApi, credentialsApi } from '../api';
 import type { Runner, RunnerStatus } from '../types';
 
@@ -240,6 +240,3 @@ export function Dashboard() {
     </div>
   );
 }
-
-// Import missing icon
-import { Key, Layers } from 'lucide-react';
