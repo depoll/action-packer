@@ -66,26 +66,48 @@ export async function getDockerInfo(): Promise<object | null> {
 }
 
 /**
- * Pull the runner image if not present
+ * Pull the runner image for the specified platform
+ * Note: Docker multi-arch images require explicit platform handling.
+ * We pull with --platform and verify the architecture before use.
  */
 export async function pullRunnerImage(
-  architecture: string = 'amd64'
-): Promise<void> {
+  architecture: 'amd64' | 'arm64' = 'amd64'
+): Promise<string> {
   const d = initDocker();
+  const platform = `linux/${architecture}`;
+
+  const splitImageRef = (ref: string): { repo: string; tag: string } => {
+    const lastColon = ref.lastIndexOf(':');
+    const lastSlash = ref.lastIndexOf('/');
+    if (lastColon > lastSlash) {
+      return { repo: ref.slice(0, lastColon), tag: ref.slice(lastColon + 1) };
+    }
+    return { repo: ref, tag: 'latest' };
+  };
+
+  const { repo, tag: originalTag } = splitImageRef(RUNNER_IMAGE);
+  const archTag = `${originalTag}-${architecture}`;
+  const platformTag = `${repo}:${archTag}`;
   
-  // Check if image exists
+  // Check if we already have the platform-specific tag with correct architecture
   try {
-    await d.getImage(RUNNER_IMAGE).inspect();
-    console.log(`Image ${RUNNER_IMAGE} already exists`);
-    return;
+    const existingImage = await d.getImage(platformTag).inspect();
+    const imageArch = existingImage.Architecture;
+    const normalizedImageArch = imageArch === 'aarch64' ? 'arm64' : imageArch;
+    
+    if (normalizedImageArch === architecture) {
+      console.log(`Image ${platformTag} already exists with correct architecture (${imageArch})`);
+      return platformTag;
+    }
+    console.log(`Image ${platformTag} exists but has wrong architecture (${imageArch}), re-pulling...`);
   } catch {
-    // Image doesn't exist, pull it
+    // Image doesn't exist, need to pull
   }
   
-  console.log(`Pulling image ${RUNNER_IMAGE} for ${architecture}...`);
+  console.log(`Pulling image ${RUNNER_IMAGE} for ${platform}...`);
   
-  return new Promise((resolve, reject) => {
-    d.pull(RUNNER_IMAGE, { platform: `linux/${architecture}` }, (err: Error | null, stream: NodeJS.ReadableStream | undefined) => {
+  await new Promise<void>((resolve, reject) => {
+    d.pull(RUNNER_IMAGE, { platform }, (err: Error | null, stream: NodeJS.ReadableStream | undefined) => {
       if (err) {
         reject(err);
         return;
@@ -105,6 +127,21 @@ export async function pullRunnerImage(
       });
     });
   });
+  
+  // Verify the pulled image has the correct architecture
+  const pulledImage = await d.getImage(RUNNER_IMAGE).inspect();
+  console.log(`Pulled image architecture: ${pulledImage.Architecture}`);
+  
+  // Tag the pulled image with architecture-specific tag
+  console.log(`Tagging image as ${platformTag}...`);
+  const image = d.getImage(RUNNER_IMAGE);
+  await image.tag({ repo, tag: archTag });
+  
+  // Verify the tagged image
+  const taggedImage = await d.getImage(platformTag).inspect();
+  console.log(`Tagged image ${platformTag} architecture: ${taggedImage.Architecture}`);
+  
+  return platformTag;
 }
 
 /**
@@ -119,6 +156,12 @@ export async function createDockerRunner(
   ephemeral: boolean = false
 ): Promise<string> {
   const d = initDocker();
+
+  // Normalize architecture for Docker platform strings
+  const dockerArch = architecture === 'x64' ? 'amd64' : architecture;
+  if (dockerArch !== 'amd64' && dockerArch !== 'arm64') {
+    throw new Error(`Unsupported Docker architecture: ${architecture}`);
+  }
   
   // Get credential
   const credential = getCredentialById.get(credentialId) as any;
@@ -142,8 +185,11 @@ export async function createDockerRunner(
     ? `https://github.com/${credential.target}`
     : `https://github.com/${credential.target}`;
   
-  // Pull image if needed
-  await pullRunnerImage(architecture);
+  // Pull image and get the platform-specific tag
+  const imageTag = await pullRunnerImage(dockerArch);
+  
+  // Map architecture to GitHub's label format
+  const archLabel = dockerArch === 'amd64' ? 'X64' : 'ARM64';
   
   // Environment variables for the container
   const env = [
@@ -151,11 +197,12 @@ export async function createDockerRunner(
     `RUNNER_NAME=${name}`,
     `RUNNER_TOKEN=${regToken.token}`,
     `RUNNER_WORKDIR=/tmp/runner/work`,
+    // Disable automatic runner software updates inside the container
+    `DISABLE_AUTO_UPDATE=true`,
   ];
   
-  if (labels.length > 0) {
-    env.push(`LABELS=${labels.join(',')}`);
-  }
+  const allLabels = [archLabel, ...labels];
+  env.push(`LABELS=${allLabels.join(',')}`);
   
   if (ephemeral) {
     env.push('EPHEMERAL=true');
@@ -169,9 +216,9 @@ export async function createDockerRunner(
   updateRunnerStatus.run('configuring', runnerId);
   
   try {
-    // Create container
+    // Create container using the architecture-specific image tag
     const container = await d.createContainer({
-      Image: RUNNER_IMAGE,
+      Image: imageTag,
       name: `action-packer-${runnerId}`,
       Env: env,
       HostConfig: {
@@ -182,7 +229,6 @@ export async function createDockerRunner(
         'action-packer.runner-id': runnerId,
         'action-packer.runner-name': name,
       },
-      platform: `linux/${architecture}`,
     });
     
     // Update container ID

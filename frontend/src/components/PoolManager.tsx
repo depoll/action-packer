@@ -2,7 +2,7 @@
  * Pool Manager component for autoscaling runner pools
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Layers,
@@ -22,6 +22,7 @@ type PoolFormData = {
   credentialId: string;
   labels: string;
   isolationType: IsolationType;
+  architecture: 'x64' | 'arm64';
   minRunners: number;
   maxRunners: number;
   warmRunners: number;
@@ -44,12 +45,19 @@ function AddPoolForm({
     credentialId: credentials[0]?.id || '',
     labels: '',
     isolationType: systemInfo?.defaultIsolation || 'native',
+    architecture: systemInfo?.architecture || 'x64',
     minRunners: 0,
     maxRunners: 5,
     warmRunners: 1,
     idleTimeoutMinutes: 10,
   });
   const [error, setError] = useState<string | null>(null);
+  const [architectureTouched, setArchitectureTouched] = useState(false);
+
+  useEffect(() => {
+    if (!systemInfo || architectureTouched) return;
+    setFormData((prev) => ({ ...prev, architecture: systemInfo.architecture }));
+  }, [systemInfo, architectureTouched]);
   
   const createMutation = useMutation({
     mutationFn: poolsApi.create,
@@ -76,6 +84,7 @@ function AddPoolForm({
       credentialId: formData.credentialId,
       labels,
       isolationType: formData.isolationType,
+      architecture: formData.isolationType === 'docker' ? formData.architecture : undefined,
       minRunners: formData.minRunners,
       maxRunners: formData.maxRunners,
       warmRunners: formData.warmRunners,
@@ -149,6 +158,32 @@ function AddPoolForm({
               ))}
             </select>
           </div>
+          
+          {formData.isolationType === 'docker' && (
+            <div>
+              <label className="label">Architecture</label>
+              <select
+                className="input"
+                value={formData.architecture}
+                onChange={(e) => {
+                  setArchitectureTouched(true);
+                  setFormData({ ...formData, architecture: e.target.value as 'x64' | 'arm64' });
+                }}
+              >
+                <option value="arm64">
+                  {systemInfo?.architecture === 'arm64' ? 'ARM64 (native)' : 'ARM64'}
+                </option>
+                <option value="x64">
+                  x64/AMD64{systemInfo?.architecture === 'arm64' ? ' (emulated on ARM64)' : ''}
+                </option>
+              </select>
+              {formData.architecture === 'x64' && systemInfo?.architecture === 'arm64' && (
+                <p className="text-xs text-yellow-400 mt-1">
+                  ⚠️ x64 will run under emulation on ARM64, which may be slower
+                </p>
+              )}
+            </div>
+          )}
           
           <div className="grid grid-cols-2 gap-4">
             <div>

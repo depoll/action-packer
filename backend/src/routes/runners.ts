@@ -189,9 +189,9 @@ runnersRouter.post('/', async (req: Request, res: Response) => {
     
     // Determine platform and architecture
     const detected = detectPlatform();
-    const platform = body.platform || detected.platform;
-    const architecture = body.architecture || detected.arch;
     const isolationType = body.isolationType || 'native';
+    const platform = isolationType === 'docker' ? 'linux' : (body.platform || detected.platform);
+    const architecture = body.architecture || detected.arch;
     const labels = body.labels || [];
     const ephemeral = body.ephemeral || false;
     

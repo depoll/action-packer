@@ -2,7 +2,7 @@
  * Runner Manager component
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Server,
@@ -38,6 +38,7 @@ type RunnerFormData = {
   credentialId: string;
   labels: string;
   isolationType: IsolationType;
+  architecture: 'x64' | 'arm64';
   ephemeral: boolean;
 };
 
@@ -57,9 +58,16 @@ function AddRunnerForm({
     credentialId: credentials[0]?.id || '',
     labels: '',
     isolationType: systemInfo?.defaultIsolation || 'native',
+    architecture: systemInfo?.architecture || 'x64',
     ephemeral: false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [architectureTouched, setArchitectureTouched] = useState(false);
+
+  useEffect(() => {
+    if (!systemInfo || architectureTouched) return;
+    setFormData((prev) => ({ ...prev, architecture: systemInfo.architecture }));
+  }, [systemInfo, architectureTouched]);
   
   const createMutation = useMutation({
     mutationFn: runnersApi.create,
@@ -86,6 +94,7 @@ function AddRunnerForm({
       credentialId: formData.credentialId,
       labels,
       isolationType: formData.isolationType,
+      architecture: formData.isolationType === 'docker' ? formData.architecture : undefined,
       ephemeral: formData.ephemeral,
     });
   };
@@ -165,6 +174,32 @@ function AddRunnerForm({
             )}
           </div>
           
+          {formData.isolationType === 'docker' && (
+            <div>
+              <label className="label">Architecture</label>
+              <select
+                className="input"
+                value={formData.architecture}
+                onChange={(e) => {
+                  setArchitectureTouched(true);
+                  setFormData({ ...formData, architecture: e.target.value as 'x64' | 'arm64' });
+                }}
+              >
+                <option value="arm64">
+                  {systemInfo?.architecture === 'arm64' ? 'ARM64 (native)' : 'ARM64'}
+                </option>
+                <option value="x64">
+                  x64/AMD64{systemInfo?.architecture === 'arm64' ? ' (emulated on ARM64)' : ''}
+                </option>
+              </select>
+              {formData.architecture === 'x64' && systemInfo?.architecture === 'arm64' && (
+                <p className="text-xs text-yellow-400 mt-1">
+                  ⚠️ x64 will run under emulation on ARM64, which may be slower
+                </p>
+              )}
+            </div>
+          )}
+          
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -225,6 +260,14 @@ function RunnerRow({
     linux: '🐧',
     win32: '🪟',
   };
+
+  const platformLabels: Record<string, string> = {
+    darwin: 'macos',
+    linux: 'linux',
+    win32: 'windows',
+  };
+
+  const effectivePlatform = runner.isolation_type === 'docker' ? 'linux' : runner.platform;
   
   const canStart = runner.status === 'offline';
   const canStop = runner.status === 'online' || runner.status === 'busy';
@@ -233,7 +276,7 @@ function RunnerRow({
     <tr>
       <td>
         <div className="flex items-center gap-3">
-          <span className="text-xl">{platformIcons[runner.platform] || '💻'}</span>
+          <span className="text-xl">{platformIcons[effectivePlatform] || '💻'}</span>
           <div>
             <div className="font-medium">{runner.name}</div>
             <div className="text-xs text-muted">{runner.target}</div>
@@ -254,7 +297,7 @@ function RunnerRow({
       <td>
         <div className="flex items-center gap-2 text-sm text-muted">
           <Cpu className="h-4 w-4" />
-          {runner.architecture}
+          {platformLabels[effectivePlatform] || effectivePlatform}/{runner.architecture}
         </div>
       </td>
       <td>
@@ -413,7 +456,7 @@ export function RunnerManager() {
               <tr>
                 <th>Runner</th>
                 <th>Status</th>
-                <th>Architecture</th>
+                <th>OS/Arch</th>
                 <th>Isolation</th>
                 <th>Labels</th>
                 <th>Actions</th>
