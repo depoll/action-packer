@@ -75,7 +75,11 @@ export async function pullRunnerImage(
 ): Promise<string> {
   const d = initDocker();
   const platform = `linux/${architecture}`;
-  const platformTag = `${RUNNER_IMAGE}:${architecture}`;
+  // Parse image name and tag (e.g., "myoung34/github-runner:latest" -> repo="myoung34/github-runner", tag="latest")
+  const [repo, _originalTag] = RUNNER_IMAGE.includes(':') 
+    ? RUNNER_IMAGE.split(':') 
+    : [RUNNER_IMAGE, 'latest'];
+  const platformTag = `${repo}:${architecture}`;
   
   // Check if we already have the platform-specific tag
   try {
@@ -114,7 +118,7 @@ export async function pullRunnerImage(
   // This ensures we can reference the correct platform variant
   console.log(`Tagging image as ${platformTag}...`);
   const image = d.getImage(RUNNER_IMAGE);
-  await image.tag({ repo: RUNNER_IMAGE.split(':')[0], tag: architecture });
+  await image.tag({ repo, tag: architecture });
   
   return platformTag;
 }
