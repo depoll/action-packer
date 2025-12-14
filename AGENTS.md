@@ -50,6 +50,11 @@ npm run dev:backend   # http://localhost:3001
 npm run dev:frontend  # http://localhost:5173
 ```
 
+Notes:
+
+- `npm run dev` runs both servers in parallel via `concurrently`.
+- Press Ctrl+C once to stop both.
+
 ## Code Conventions
 
 ### TypeScript

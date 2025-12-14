@@ -40,6 +40,9 @@ npm run dev:backend   # API at http://localhost:3001
 npm run dev:frontend  # UI at http://localhost:5173
 ```
 
+`npm run dev` uses `concurrently` to run both dev servers in parallel.
+Press Ctrl+C once to stop both.
+
 ### Testing
 
 ```bash
