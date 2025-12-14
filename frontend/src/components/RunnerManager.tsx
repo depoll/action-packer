@@ -249,6 +249,14 @@ function RunnerRow({
     linux: '🐧',
     win32: '🪟',
   };
+
+  const platformLabels: Record<string, string> = {
+    darwin: 'macos',
+    linux: 'linux',
+    win32: 'windows',
+  };
+
+  const effectivePlatform = runner.isolation_type === 'docker' ? 'linux' : runner.platform;
   
   const canStart = runner.status === 'offline';
   const canStop = runner.status === 'online' || runner.status === 'busy';
@@ -257,7 +265,7 @@ function RunnerRow({
     <tr>
       <td>
         <div className="flex items-center gap-3">
-          <span className="text-xl">{platformIcons[runner.platform] || '💻'}</span>
+          <span className="text-xl">{platformIcons[effectivePlatform] || '💻'}</span>
           <div>
             <div className="font-medium">{runner.name}</div>
             <div className="text-xs text-muted">{runner.target}</div>
@@ -278,7 +286,7 @@ function RunnerRow({
       <td>
         <div className="flex items-center gap-2 text-sm text-muted">
           <Cpu className="h-4 w-4" />
-          {runner.architecture}
+          {platformLabels[effectivePlatform] || effectivePlatform} / {runner.architecture}
         </div>
       </td>
       <td>
@@ -437,7 +445,7 @@ export function RunnerManager() {
               <tr>
                 <th>Runner</th>
                 <th>Status</th>
-                <th>Architecture</th>
+                <th>OS/Arch</th>
                 <th>Isolation</th>
                 <th>Labels</th>
                 <th>Actions</th>
