@@ -161,17 +161,24 @@ export async function createDockerRunner(
   // Pull image and get the platform-specific tag
   const imageTag = await pullRunnerImage(architecture);
   
+  // Map architecture to GitHub's label format
+  const archLabel = architecture === 'amd64' || architecture === 'x64' ? 'X64' : 'ARM64';
+  
   // Environment variables for the container
   const env = [
     `REPO_URL=${repoUrl}`,
     `RUNNER_NAME=${name}`,
     `RUNNER_TOKEN=${regToken.token}`,
     `RUNNER_WORKDIR=/tmp/runner/work`,
+    // Disable automatic OS/arch label detection - we'll provide explicit labels
+    `DISABLE_AUTO_UPDATE=true`,
   ];
   
-  if (labels.length > 0) {
-    env.push(`LABELS=${labels.join(',')}`);
-  }
+  // Build labels: always include self-hosted, linux, and architecture
+  // The myoung34/github-runner image adds self-hosted and linux automatically,
+  // but we need to override the architecture detection
+  const allLabels = ['self-hosted', 'linux', archLabel, ...labels];
+  env.push(`LABELS=${allLabels.join(',')}`);
   
   if (ephemeral) {
     env.push('EPHEMERAL=true');
