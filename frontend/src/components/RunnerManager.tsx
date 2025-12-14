@@ -2,7 +2,7 @@
  * Runner Manager component
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Server,
@@ -58,10 +58,16 @@ function AddRunnerForm({
     credentialId: credentials[0]?.id || '',
     labels: '',
     isolationType: systemInfo?.defaultIsolation || 'native',
-    architecture: systemInfo?.architecture || 'arm64',
+    architecture: systemInfo?.architecture || 'x64',
     ephemeral: false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [architectureTouched, setArchitectureTouched] = useState(false);
+
+  useEffect(() => {
+    if (!systemInfo || architectureTouched) return;
+    setFormData((prev) => ({ ...prev, architecture: systemInfo.architecture }));
+  }, [systemInfo, architectureTouched]);
   
   const createMutation = useMutation({
     mutationFn: runnersApi.create,
@@ -174,12 +180,17 @@ function AddRunnerForm({
               <select
                 className="input"
                 value={formData.architecture}
-                onChange={(e) =>
-                  setFormData({ ...formData, architecture: e.target.value as 'x64' | 'arm64' })
-                }
+                onChange={(e) => {
+                  setArchitectureTouched(true);
+                  setFormData({ ...formData, architecture: e.target.value as 'x64' | 'arm64' });
+                }}
               >
-                <option value="arm64">ARM64 (native on Apple Silicon)</option>
-                <option value="x64">x64/AMD64 (emulated on Apple Silicon)</option>
+                <option value="arm64">
+                  {systemInfo?.architecture === 'arm64' ? 'ARM64 (native)' : 'ARM64'}
+                </option>
+                <option value="x64">
+                  x64/AMD64{systemInfo?.architecture === 'arm64' ? ' (emulated on ARM64)' : ''}
+                </option>
               </select>
               {formData.architecture === 'x64' && systemInfo?.architecture === 'arm64' && (
                 <p className="text-xs text-yellow-400 mt-1">
@@ -286,7 +297,7 @@ function RunnerRow({
       <td>
         <div className="flex items-center gap-2 text-sm text-muted">
           <Cpu className="h-4 w-4" />
-          {platformLabels[effectivePlatform] || effectivePlatform} / {runner.architecture}
+          {platformLabels[effectivePlatform] || effectivePlatform}/{runner.architecture}
         </div>
       </td>
       <td>

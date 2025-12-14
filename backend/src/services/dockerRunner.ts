@@ -71,25 +71,31 @@ export async function getDockerInfo(): Promise<object | null> {
  * We pull with --platform and verify the architecture before use.
  */
 export async function pullRunnerImage(
-  architecture: string = 'amd64'
+  architecture: 'amd64' | 'arm64' = 'amd64'
 ): Promise<string> {
   const d = initDocker();
   const platform = `linux/${architecture}`;
-  // Parse image name and tag (e.g., "myoung34/github-runner:latest" -> repo="myoung34/github-runner", tag="latest")
-  const [repo, _originalTag] = RUNNER_IMAGE.includes(':') 
-    ? RUNNER_IMAGE.split(':') 
-    : [RUNNER_IMAGE, 'latest'];
-  const platformTag = `${repo}:${architecture}`;
+
+  const splitImageRef = (ref: string): { repo: string; tag: string } => {
+    const lastColon = ref.lastIndexOf(':');
+    const lastSlash = ref.lastIndexOf('/');
+    if (lastColon > lastSlash) {
+      return { repo: ref.slice(0, lastColon), tag: ref.slice(lastColon + 1) };
+    }
+    return { repo: ref, tag: 'latest' };
+  };
+
+  const { repo, tag: originalTag } = splitImageRef(RUNNER_IMAGE);
+  const archTag = `${originalTag}-${architecture}`;
+  const platformTag = `${repo}:${archTag}`;
   
   // Check if we already have the platform-specific tag with correct architecture
   try {
     const existingImage = await d.getImage(platformTag).inspect();
     const imageArch = existingImage.Architecture;
-    // Normalize architecture names (amd64 = x64, arm64 = aarch64)
-    const normalizedImageArch = imageArch === 'amd64' ? 'amd64' : (imageArch === 'arm64' ? 'arm64' : imageArch);
-    const normalizedRequestedArch = architecture === 'x64' ? 'amd64' : architecture;
+    const normalizedImageArch = imageArch === 'aarch64' ? 'arm64' : imageArch;
     
-    if (normalizedImageArch === normalizedRequestedArch) {
+    if (normalizedImageArch === architecture) {
       console.log(`Image ${platformTag} already exists with correct architecture (${imageArch})`);
       return platformTag;
     }
@@ -129,7 +135,7 @@ export async function pullRunnerImage(
   // Tag the pulled image with architecture-specific tag
   console.log(`Tagging image as ${platformTag}...`);
   const image = d.getImage(RUNNER_IMAGE);
-  await image.tag({ repo, tag: architecture });
+  await image.tag({ repo, tag: archTag });
   
   // Verify the tagged image
   const taggedImage = await d.getImage(platformTag).inspect();
@@ -150,6 +156,12 @@ export async function createDockerRunner(
   ephemeral: boolean = false
 ): Promise<string> {
   const d = initDocker();
+
+  // Normalize architecture for Docker platform strings
+  const dockerArch = architecture === 'x64' ? 'amd64' : architecture;
+  if (dockerArch !== 'amd64' && dockerArch !== 'arm64') {
+    throw new Error(`Unsupported Docker architecture: ${architecture}`);
+  }
   
   // Get credential
   const credential = getCredentialById.get(credentialId) as any;
@@ -174,10 +186,10 @@ export async function createDockerRunner(
     : `https://github.com/${credential.target}`;
   
   // Pull image and get the platform-specific tag
-  const imageTag = await pullRunnerImage(architecture);
+  const imageTag = await pullRunnerImage(dockerArch);
   
   // Map architecture to GitHub's label format
-  const archLabel = architecture === 'amd64' || architecture === 'x64' ? 'X64' : 'ARM64';
+  const archLabel = dockerArch === 'amd64' ? 'X64' : 'ARM64';
   
   // Environment variables for the container
   const env = [
@@ -185,14 +197,11 @@ export async function createDockerRunner(
     `RUNNER_NAME=${name}`,
     `RUNNER_TOKEN=${regToken.token}`,
     `RUNNER_WORKDIR=/tmp/runner/work`,
-    // Disable automatic OS/arch label detection - we'll provide explicit labels
+    // Disable automatic runner software updates inside the container
     `DISABLE_AUTO_UPDATE=true`,
   ];
   
-  // Build labels: always include self-hosted, linux, and architecture
-  // The myoung34/github-runner image adds self-hosted and linux automatically,
-  // but we need to override the architecture detection
-  const allLabels = ['self-hosted', 'linux', archLabel, ...labels];
+  const allLabels = [archLabel, ...labels];
   env.push(`LABELS=${allLabels.join(',')}`);
   
   if (ephemeral) {
