@@ -5,6 +5,7 @@
 export {
   GitHubClient,
   createGitHubClient,
+  createGitHubClientFromOctokit,
   type GitHubScope,
   type GitHubRunner,
   type GitHubRunnerDownload,
@@ -12,6 +13,30 @@ export {
   type Repository,
   type Organization,
 } from './github.js';
+
+export {
+  GitHubAppClient,
+  generateAppManifest,
+  generateAppJWT,
+  exchangeManifestCode,
+  getAppInfo,
+  listInstallations,
+  getRepoInstallation,
+  getOrgInstallation,
+  getUserInstallation,
+  getInstallationAccessToken,
+  getOAuthAuthorizationUrl,
+  exchangeOAuthCode,
+  getAuthenticatedUser,
+  type GitHubAppManifest,
+  type GitHubAppPermissions,
+  type GitHubWebhookEvent,
+  type GitHubAppCredentials,
+  type GitHubAppInstallation,
+  type InstallationAccessToken,
+  type GitHubUserAccessToken,
+  type GitHubUser,
+} from './githubApp.js';
 
 export {
   detectPlatform,

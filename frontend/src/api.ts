@@ -186,6 +186,67 @@ export const poolsApi = {
     request<void>(`/api/pools/${id}/webhook`, { method: 'DELETE' }),
 };
 
+// Onboarding API
+export const onboardingApi = {
+  getStatus: () =>
+    request<import('./types').SetupStatus>('/api/onboarding/status'),
+  
+  setBaseUrl: (baseUrl: string) =>
+    request<{ success: boolean; baseUrl: string }>('/api/onboarding/base-url', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl }),
+    }),
+  
+  getManifest: (options?: { org?: string; name?: string }) => {
+    const params = new URLSearchParams();
+    if (options?.org) params.set('org', options.org);
+    if (options?.name) params.set('name', options.name);
+    const query = params.toString();
+    return request<import('./types').GitHubAppManifestResponse>(
+      `/api/onboarding/manifest${query ? `?${query}` : ''}`
+    );
+  },
+  
+  getGitHubApp: () =>
+    request<import('./types').GitHubAppInfo>('/api/onboarding/github-app'),
+  
+  setupGitHubAppManual: (data: {
+    appId: number;
+    appName?: string;
+    clientId: string;
+    clientSecret: string;
+    privateKey: string;
+    webhookSecret?: string;
+  }) =>
+    request<{ success: boolean; app: { id: number; slug: string; name: string } }>(
+      '/api/onboarding/github-app/manual',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+  
+  deleteGitHubApp: () =>
+    request<void>('/api/onboarding/github-app', { method: 'DELETE' }),
+  
+  getInstallations: (refresh?: boolean) =>
+    request<import('./types').InstallationsResponse>(
+      `/api/onboarding/installations${refresh ? '?refresh=true' : ''}`
+    ),
+  
+  getInstallUrl: () =>
+    request<{ installUrl: string; appSlug: string }>('/api/onboarding/install-url'),
+  
+  getAuthLoginUrl: () =>
+    request<{ authUrl: string; state: string }>('/api/onboarding/auth/login'),
+  
+  getCurrentUser: () =>
+    request<{ user: import('./types').AuthUser }>('/api/onboarding/auth/me'),
+  
+  logout: () =>
+    request<{ success: boolean }>('/api/onboarding/auth/logout', { method: 'POST' }),
+};
+
 // Health check
 export const healthApi = {
   check: () => request<{ status: string; timestamp: string; uptime: number }>('/health'),

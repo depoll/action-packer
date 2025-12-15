@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Layout, Dashboard, CredentialManager, RunnerManager, PoolManager } from './components';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { Layout, Dashboard, CredentialManager, RunnerManager, PoolManager, OnboardingWizard } from './components';
 import { useWebSocket } from './hooks';
+import { onboardingApi } from './api';
+import type { SetupStatus } from './types';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,7 +18,21 @@ export type Page = 'dashboard' | 'credentials' | 'runners' | 'pools' | 'settings
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const { isConnected, lastMessage } = useWebSocket();
+
+  // Check setup status
+  const { data: setupStatus, isLoading: isLoadingStatus } = useQuery<SetupStatus>({
+    queryKey: ['setup-status'],
+    queryFn: () => onboardingApi.getStatus(),
+  });
+
+  // Determine if we should show onboarding
+  useEffect(() => {
+    if (setupStatus !== undefined) {
+      setShowOnboarding(!setupStatus.isComplete);
+    }
+  }, [setupStatus]);
 
   // Handle WebSocket messages for real-time updates
   useEffect(() => {
@@ -36,6 +52,28 @@ function AppContent() {
   const handlePageChange = (page: string) => {
     setCurrentPage(page as Page);
   };
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    queryClient.invalidateQueries({ queryKey: ['setup-status'] });
+  };
+
+  // Show loading state while checking setup status
+  if (isLoadingStatus || showOnboarding === null) {
+    return (
+      <div className="min-h-screen bg-forest-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-muted">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show onboarding wizard if setup is not complete
+  if (showOnboarding) {
+    return <OnboardingWizard onComplete={handleOnboardingComplete} />;
+  }
 
   const renderPage = () => {
     switch (currentPage) {

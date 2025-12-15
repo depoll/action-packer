@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { healthRouter } from './routes/health.js';
@@ -8,6 +9,7 @@ import { credentialsRouter } from './routes/credentials.js';
 import { runnersRouter } from './routes/runners.js';
 import { poolsRouter } from './routes/pools.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { onboardingRouter } from './routes/onboarding.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { initializeSchema, db } from './db/index.js';
 
@@ -50,7 +52,11 @@ export function broadcast(type: string, data: unknown): void {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
+app.use(cookieParser());
 // Capture raw body for webhook signature verification
 app.use('/api/webhooks', express.json({
   verify: (req, _res, buf) => {
@@ -67,6 +73,10 @@ app.use('/api/credentials', credentialsRouter);
 app.use('/api/runners', runnersRouter);
 app.use('/api/pools', poolsRouter);
 app.use('/api/webhooks', webhooksRouter);
+app.use('/api/onboarding', onboardingRouter);
+// Also mount auth routes at /api/auth for convenience
+app.use('/api/github-app', onboardingRouter);
+app.use('/api/auth', onboardingRouter);
 
 // Error handling
 app.use(notFoundHandler);
