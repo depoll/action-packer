@@ -97,11 +97,9 @@ if (process.env.NODE_ENV === 'production') {
     app.use(express.static(frontendDistPath));
 
     // SPA fallback: send index.html for non-API routes
-    app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/ws')) {
-        next();
-        return;
-      }
+    // NOTE: Express 5 + path-to-regexp v6 does not accept '*' as a route pattern.
+    // Use a regex instead.
+    app.get(/^(?!\/(?:api|health|ws)(?:\/|$)).*/, (_req, res) => {
       res.sendFile(indexHtmlPath);
     });
   } else {
