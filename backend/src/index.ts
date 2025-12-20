@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { healthRouter } from './routes/health.js';
@@ -13,6 +16,9 @@ import { onboardingRouter } from './routes/onboarding.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/auth.js';
 import { initializeSchema, db } from './db/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
@@ -81,6 +87,27 @@ app.use('/api/onboarding', onboardingRouter);
 // Also mount auth routes at /api/auth for convenience
 app.use('/api/github-app', onboardingRouter);
 app.use('/api/auth', onboardingRouter);
+
+// Production: serve the built frontend from the backend (Option A)
+if (process.env.NODE_ENV === 'production') {
+  const frontendDistPath = path.resolve(__dirname, '..', '..', 'frontend', 'dist');
+  const indexHtmlPath = path.join(frontendDistPath, 'index.html');
+
+  if (fs.existsSync(indexHtmlPath)) {
+    app.use(express.static(frontendDistPath));
+
+    // SPA fallback: send index.html for non-API routes
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/ws')) {
+        next();
+        return;
+      }
+      res.sendFile(indexHtmlPath);
+    });
+  } else {
+    console.warn(`⚠️  Frontend build not found at ${indexHtmlPath}. Run \`npm run build\` first.`);
+  }
+}
 
 // Error handling
 app.use(notFoundHandler);
