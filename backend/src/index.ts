@@ -121,20 +121,57 @@ export const server = httpServer.listen(PORT, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down...');
-  server.close(() => {
-    db.close();
-    process.exit(0);
-  });
-});
+let shutdownInProgress = false;
+let forceExitArmed = false;
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down...');
+function shutdown(signal: string): void {
+  if (shutdownInProgress) {
+    if (!forceExitArmed) {
+      forceExitArmed = true;
+      console.log('Shutdown already in progress. Press Ctrl+C again to force exit.');
+      return;
+    }
+    console.log('Force exiting...');
+    process.exit(1);
+  }
+
+  shutdownInProgress = true;
+  console.log(`${signal} received, shutting down...`);
+
+  // If something prevents shutdown (e.g. open sockets), force exit after a short delay.
+  const forceTimer = setTimeout(() => {
+    console.error('Shutdown timed out. Forcing exit.');
+    process.exit(1);
+  }, 5000);
+  forceTimer.unref();
+
+  // Stop accepting new websocket connections and terminate existing ones.
+  try {
+    wss.close();
+  } catch {
+    // ignore
+  }
+  clients.forEach((client) => {
+    try {
+      client.terminate();
+    } catch {
+      // ignore
+    }
+  });
+  clients.clear();
+
+  // Stop accepting new HTTP connections.
   server.close(() => {
-    db.close();
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
     process.exit(0);
   });
-});
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 export { app };
