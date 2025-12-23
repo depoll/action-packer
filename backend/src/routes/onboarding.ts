@@ -184,8 +184,12 @@ function ensureCredentialForInstallation(installation: {
   }
 
   // Create new credential
+  // Both User and Organization installations use 'org' scope because:
+  // - Organization: access to org-level runners
+  // - User: access to all user's repos (similar to org-level access)
+  // The 'repo' scope is only for single-repo PATs with owner/repo format
   const credentialId = uuidv4();
-  const scope = installation.target_type === 'Organization' ? 'org' : 'repo';
+  const scope = 'org';
   const name = `GitHub App: ${installation.account_login}`;
   const placeholderToken = `gha:${installation.id}`;
   const encryptedToken = encrypt(placeholderToken);
