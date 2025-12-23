@@ -166,6 +166,48 @@ function getGitHubApp(): GitHubAppRow | null {
   return row ?? null;
 }
 
+/**
+ * Create or get an existing credential for a GitHub App installation
+ */
+function ensureCredentialForInstallation(installation: {
+  id: number;
+  target_type: 'User' | 'Organization';
+  account_login: string;
+}): string {
+  // Check if credential already exists for this installation
+  const existing = db
+    .prepare('SELECT id FROM credentials WHERE installation_id = ?')
+    .get(installation.id) as { id: string } | undefined;
+
+  if (existing) {
+    return existing.id;
+  }
+
+  // Create new credential
+  const credentialId = uuidv4();
+  const scope = installation.target_type === 'Organization' ? 'org' : 'repo';
+  const name = `GitHub App: ${installation.account_login}`;
+  const placeholderToken = `gha:${installation.id}`;
+  const encryptedToken = encrypt(placeholderToken);
+
+  db.prepare(
+    `INSERT INTO credentials (
+      id, name, type, scope, target, encrypted_token, iv, auth_tag, installation_id, validated_at
+    ) VALUES (?, ?, 'github_app', ?, ?, ?, ?, ?, ?, datetime('now'))`
+  ).run(
+    credentialId,
+    name,
+    scope,
+    installation.account_login,
+    encryptedToken.encrypted,
+    encryptedToken.iv,
+    encryptedToken.authTag,
+    installation.id
+  );
+
+  return credentialId;
+}
+
 // ============================================
 // Setup Status
 // ============================================
@@ -571,7 +613,7 @@ router.get('/installations', async (req: Request, res: Response, next: NextFunct
       const appJwt = generateAppJWT(privateKey, app.client_id);
       const installations = await listInstallations(appJwt);
 
-      // Sync installations to database
+      // Sync installations to database and create credentials
       for (const installation of installations) {
         db.prepare(
           `INSERT OR REPLACE INTO github_app_installations (
@@ -590,6 +632,13 @@ router.get('/installations', async (req: Request, res: Response, next: NextFunct
           JSON.stringify(installation.events),
           installation.suspended_at
         );
+
+        // Auto-create credential for this installation
+        ensureCredentialForInstallation({
+          id: installation.id,
+          target_type: installation.target_type,
+          account_login: installation.account.login,
+        });
       }
 
       // Remove installations that no longer exist
@@ -604,27 +653,37 @@ router.get('/installations', async (req: Request, res: Response, next: NextFunct
       }
     }
 
-    // Return installations from database
+    // Return installations from database with credential info
     const rows = db
       .prepare('SELECT * FROM github_app_installations ORDER BY account_login')
       .all() as GitHubAppInstallationRow[];
 
-    const installations = rows.map((row) => ({
-      id: row.id,
-      appId: row.app_id,
-      targetId: row.target_id,
-      targetType: row.target_type,
-      account: {
-        login: row.account_login,
-        id: row.account_id,
-      },
-      repositorySelection: row.repository_selection,
-      permissions: JSON.parse(row.permissions),
-      events: JSON.parse(row.events),
-      suspendedAt: row.suspended_at,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    const installations = rows.map((row) => {
+      // Get or create credential for this installation
+      const credentialId = ensureCredentialForInstallation({
+        id: row.id,
+        target_type: row.target_type as 'User' | 'Organization',
+        account_login: row.account_login,
+      });
+
+      return {
+        id: row.id,
+        appId: row.app_id,
+        targetId: row.target_id,
+        targetType: row.target_type,
+        account: {
+          login: row.account_login,
+          id: row.account_id,
+        },
+        repositorySelection: row.repository_selection,
+        permissions: JSON.parse(row.permissions),
+        events: JSON.parse(row.events),
+        suspendedAt: row.suspended_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        credentialId,
+      };
+    });
 
     res.json({ installations });
   } catch (error) {
@@ -1149,7 +1208,18 @@ export function handleInstallationWebhook(
       JSON.stringify(installation.events),
       installation.suspended_at
     );
+
+    // Auto-create credential for this installation
+    ensureCredentialForInstallation({
+      id: installation.id,
+      target_type: installation.target_type,
+      account_login: installation.account.login,
+    });
   } else if (action === 'deleted') {
+    // Delete associated credential
+    db.prepare('DELETE FROM credentials WHERE installation_id = ?').run(
+      installation.id
+    );
     db.prepare('DELETE FROM github_app_installations WHERE id = ?').run(
       installation.id
     );
