@@ -160,8 +160,6 @@ export function generateAppManifest(options: {
     },
     default_events: [
       'workflow_job',
-      'installation',
-      'installation_repositories',
     ],
     request_oauth_on_install: false,
   };
