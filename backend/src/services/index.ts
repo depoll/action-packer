@@ -52,6 +52,14 @@ export {
 } from './runnerManager.js';
 
 export {
+  resolveCredentialToken,
+  resolveCredentialById,
+  createClientFromCredential,
+  createClientFromCredentialId,
+  type ResolvedCredential,
+} from './credentialResolver.js';
+
+export {
   initDocker,
   isDockerAvailable,
   getDockerInfo,

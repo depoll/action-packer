@@ -14,8 +14,8 @@ import { createGunzip } from 'zlib';
 import { extract } from 'tar-fs';
 import { v4 as uuidv4 } from 'uuid';
 import { db, type RunnerRow } from '../db/index.js';
-import { decrypt } from '../utils/index.js';
-import { createGitHubClient, type GitHubScope, type GitHubRunnerDownload } from './github.js';
+import { type GitHubRunnerDownload } from './github.js';
+import { createClientFromCredentialId, resolveCredentialById } from './credentialResolver.js';
 
 // Runner storage directory
 const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(os.homedir(), '.action-packer', 'runners');
@@ -51,7 +51,6 @@ const updateRunnerProcessId = db.prepare(`
 const updateRunnerHeartbeat = db.prepare(`
   UPDATE runners SET last_heartbeat = datetime('now'), updated_at = datetime('now') WHERE id = ?
 `);
-const getCredentialById = db.prepare('SELECT * FROM credentials WHERE id = ?');
 
 /**
  * Get the correct runner download for the current platform
@@ -163,19 +162,7 @@ export async function downloadRunner(
   runnerId: string,
   credentialId: string
 ): Promise<string> {
-  const credential = getCredentialById.get(credentialId) as any;
-  if (!credential) {
-    throw new Error('Credential not found');
-  }
-  
-  // Decrypt token
-  const token = decrypt({
-    encrypted: credential.encrypted_token,
-    iv: credential.iv,
-    authTag: credential.auth_tag,
-  });
-  
-  const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+  const client = await createClientFromCredentialId(credentialId);
   const downloads = await client.getRunnerDownloads();
   
   const { platform, arch } = detectPlatform();
@@ -222,27 +209,16 @@ export async function configureRunner(
   runnerDir: string,
   ephemeral: boolean = false
 ): Promise<void> {
-  const credential = getCredentialById.get(credentialId) as any;
-  if (!credential) {
-    throw new Error('Credential not found');
-  }
-  
-  // Decrypt token
-  const token = decrypt({
-    encrypted: credential.encrypted_token,
-    iv: credential.iv,
-    authTag: credential.auth_tag,
-  });
-  
-  const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+  const resolved = await resolveCredentialById(credentialId);
+  const client = await createClientFromCredentialId(credentialId);
   
   // Get registration token
   const regToken = await client.createRegistrationToken();
   
   // Build the URL
-  const url = credential.scope === 'repo'
-    ? `https://github.com/${credential.target}`
-    : `https://github.com/${credential.target}`;
+  const url = resolved.scope === 'repo'
+    ? `https://github.com/${resolved.target}`
+    : `https://github.com/${resolved.target}`;
   
   // Determine config script
   const { platform } = detectPlatform();
@@ -419,17 +395,8 @@ export async function removeRunner(runnerId: string): Promise<void> {
   // Deregister from GitHub if we have a GitHub runner ID
   if (runner.github_runner_id) {
     try {
-      const credential = getCredentialById.get(runner.credential_id) as any;
-      if (credential) {
-        const token = decrypt({
-          encrypted: credential.encrypted_token,
-          iv: credential.iv,
-          authTag: credential.auth_tag,
-        });
-        
-        const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
-        await client.deleteRunner(runner.github_runner_id);
-      }
+      const client = await createClientFromCredentialId(runner.credential_id);
+      await client.deleteRunner(runner.github_runner_id);
     } catch (error) {
       console.error('Failed to deregister runner from GitHub:', error);
       // Continue with local cleanup anyway
@@ -440,35 +407,25 @@ export async function removeRunner(runnerId: string): Promise<void> {
   if (runner.runner_dir) {
     try {
       const { platform } = detectPlatform();
-      const credential = getCredentialById.get(runner.credential_id) as any;
+      const client = await createClientFromCredentialId(runner.credential_id);
+      const removeToken = await client.createRemoveToken();
       
-      if (credential) {
-        const token = decrypt({
-          encrypted: credential.encrypted_token,
-          iv: credential.iv,
-          authTag: credential.auth_tag,
+      // Run the remove script
+      const configScript = platform === 'win32' ? 'config.cmd' : './config.sh';
+      
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(configScript, ['remove', '--token', removeToken.token], {
+          cwd: runner.runner_dir!,
+          shell: platform === 'win32',
         });
         
-        const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
-        const removeToken = await client.createRemoveToken();
-        
-        // Run the remove script
-        const configScript = platform === 'win32' ? 'config.cmd' : './config.sh';
-        
-        await new Promise<void>((resolve, reject) => {
-          const proc = spawn(configScript, ['remove', '--token', removeToken.token], {
-            cwd: runner.runner_dir!,
-            shell: platform === 'win32',
-          });
-          
-          proc.on('close', (code) => {
-            if (code === 0) resolve();
-            else reject(new Error(`Remove script failed with code ${code}`));
-          });
-          
-          proc.on('error', reject);
+        proc.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`Remove script failed with code ${code}`));
         });
-      }
+        
+        proc.on('error', reject);
+      });
     } catch (error) {
       console.error('Failed to run remove script:', error);
     }
@@ -504,16 +461,7 @@ export async function syncRunnerStatus(runnerId: string): Promise<void> {
   if (!runner || !runner.github_runner_id) return;
   
   try {
-    const credential = getCredentialById.get(runner.credential_id) as any;
-    if (!credential) return;
-    
-    const token = decrypt({
-      encrypted: credential.encrypted_token,
-      iv: credential.iv,
-      authTag: credential.auth_tag,
-    });
-    
-    const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+    const client = await createClientFromCredentialId(runner.credential_id);
     const ghRunner = await client.getRunner(runner.github_runner_id);
     
     if (ghRunner) {
@@ -574,21 +522,16 @@ export async function createAndStartRunner(
     await startRunner(id, runnerDir);
     
     // Try to get the GitHub runner ID
-    const credential = getCredentialById.get(credentialId) as any;
-    if (credential) {
-      const token = decrypt({
-        encrypted: credential.encrypted_token,
-        iv: credential.iv,
-        authTag: credential.auth_tag,
-      });
-      
-      const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+    try {
+      const client = await createClientFromCredentialId(credentialId);
       const runners = await client.listRunners();
       const ghRunner = runners.find(r => r.name === name);
       
       if (ghRunner) {
         updateRunnerGitHubId.run(ghRunner.id, id);
       }
+    } catch (error) {
+      console.error('Failed to get GitHub runner ID:', error);
     }
     
     return id;
