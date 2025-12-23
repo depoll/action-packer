@@ -17,6 +17,7 @@ import { onboardingRouter, authRouter, githubAppRouter } from './routes/onboardi
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/auth.js';
 import { initializeSchema, db } from './db/index.js';
+import { initializeRunnersOnStartup } from './services/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -187,6 +188,13 @@ export const server = httpServer.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
   console.log(`📋 Health check: http://localhost:${PORT}/health`);
   console.log(`🔌 WebSocket: ws://localhost:${PORT}/ws`);
+
+  // Initialize runners and pools on startup (skip in test mode)
+  if (process.env.NODE_ENV !== 'test') {
+    initializeRunnersOnStartup().catch((err) => {
+      console.error('❌ Failed to initialize runners on startup:', err);
+    });
+  }
 });
 
 // Graceful shutdown

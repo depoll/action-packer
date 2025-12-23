@@ -73,3 +73,7 @@ export {
   listActionPackerContainers,
   syncDockerRunnerStatus,
 } from './dockerRunner.js';
+
+export {
+  initializeRunnersOnStartup,
+} from './startup.js';
