@@ -191,7 +191,11 @@ router.post('/base-url', (req: Request, res: Response, next: NextFunction) => {
  * GET /api/github-app/callback
  * Handle the callback from GitHub after app creation via manifest
  */
-router.get('/github-app/callback', async (req: Request, res: Response, next: NextFunction) => {
+async function handleGitHubAppManifestCallback(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const { code, state } = req.query;
 
@@ -222,7 +226,13 @@ router.get('/github-app/callback', async (req: Request, res: Response, next: Nex
   } catch (error) {
     next(error);
   }
-});
+}
+
+// Backwards-compatible route (when mounted at /api/onboarding)
+router.get('/github-app/callback', handleGitHubAppManifestCallback);
+
+// Preferred route (when mounted at /api/github-app)
+router.get('/callback', handleGitHubAppManifestCallback);
 
 /**
  * Store GitHub App credentials in the database
