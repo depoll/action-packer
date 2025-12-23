@@ -14,8 +14,9 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  CloudDownload,
 } from 'lucide-react';
-import { credentialsApi } from '../api';
+import { credentialsApi, onboardingApi } from '../api';
 import type { Credential } from '../types';
 
 type CredentialFormData = {
@@ -277,6 +278,13 @@ export function CredentialManager() {
       queryClient.invalidateQueries({ queryKey: ['credentials'] });
     },
   });
+
+  const syncMutation = useMutation({
+    mutationFn: onboardingApi.syncCredentials,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credentials'] });
+    },
+  });
   
   const handleDelete = (id: string) => {
     if (confirm('Are you sure you want to delete this credential? This will also remove any associated runners.')) {
@@ -293,16 +301,27 @@ export function CredentialManager() {
         <div>
           <h1 className="text-2xl font-bold">Credentials</h1>
           <p className="text-muted mt-1">
-            Manage GitHub Personal Access Tokens for runner registration
+            Manage GitHub credentials for runner registration
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="btn btn-primary"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Credential
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="btn btn-secondary"
+            title="Sync credentials from GitHub App installations"
+          >
+            <CloudDownload className={`h-4 w-4 mr-2 ${syncMutation.isPending ? 'animate-pulse' : ''}`} />
+            {syncMutation.isPending ? 'Syncing...' : 'Sync from GitHub'}
+          </button>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="btn btn-primary"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add PAT
+          </button>
+        </div>
       </div>
       
       {/* Content */}
@@ -317,15 +336,25 @@ export function CredentialManager() {
           <Key className="h-12 w-12 mx-auto text-forest-500 mb-4" />
           <p className="text-muted">No credentials configured</p>
           <p className="text-sm text-forest-500 mt-2">
-            Add a GitHub PAT to start registering runners
+            Sync from your GitHub App installations or add a PAT manually
           </p>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="btn btn-primary mt-4"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Your First Credential
-          </button>
+          <div className="flex gap-2 justify-center mt-4">
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className="btn btn-secondary"
+            >
+              <CloudDownload className={`h-4 w-4 mr-2 ${syncMutation.isPending ? 'animate-pulse' : ''}`} />
+              {syncMutation.isPending ? 'Syncing...' : 'Sync from GitHub'}
+            </button>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="btn btn-primary"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add PAT
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -287,6 +287,11 @@ export const onboardingApi = {
     request<import('./types').InstallationsResponse>(
       `/api/onboarding/installations${refresh ? '?refresh=true' : ''}`
     ),
+
+  syncCredentials: () =>
+    request<import('./types').InstallationsResponse>(
+      '/api/onboarding/installations?refresh=true'
+    ),
   
   getInstallUrl: () =>
     request<{ installUrl: string; appSlug: string }>('/api/onboarding/install-url'),
