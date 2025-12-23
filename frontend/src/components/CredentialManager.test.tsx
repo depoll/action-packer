@@ -73,7 +73,8 @@ describe('CredentialManager', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Credentials/i })).toBeInTheDocument();
+      // Use level 1 to find the main page heading (h1)
+      expect(screen.getByRole('heading', { name: /Credentials/i, level: 1 })).toBeInTheDocument();
     });
   });
 
