@@ -553,6 +553,16 @@ function handleOAuthLogin(_req: Request, res: Response, next: NextFunction): voi
     // Store per-state to allow multiple outstanding login attempts.
     const state = generateSecret(16);
 
+    // Also store state in an httpOnly cookie so validation works even if the
+    // database file differs across environments/instances.
+    res.cookie('oauth_state', state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 10 * 60 * 1000,
+      path: '/api',
+    });
+
     // Best-effort cleanup of old states
     db.prepare(
       "DELETE FROM app_settings WHERE key LIKE 'oauth_state:%' AND updated_at < datetime('now', '-2 hours')"
@@ -607,7 +617,8 @@ async function handleOAuthCallback(req: Request, res: Response, next: NextFuncti
       .get(stateKey) as AppSettingRow | undefined;
 
     const legacyExpectedState = getSetting('oauth_state');
-    const stateValid = !!stateRow || state === legacyExpectedState;
+    const cookieState = (req as Request & { cookies?: Record<string, string> }).cookies?.oauth_state;
+    const stateValid = state === cookieState || !!stateRow || state === legacyExpectedState;
 
     if (!stateValid) {
       res.status(400).json({ error: 'Invalid state parameter' });
@@ -620,6 +631,11 @@ async function handleOAuthCallback(req: Request, res: Response, next: NextFuncti
     }
     // Always clear legacy key too (best effort)
     db.prepare('DELETE FROM app_settings WHERE key = ?').run('oauth_state');
+
+    // Clear cookie state (best effort)
+    res.clearCookie('oauth_state', {
+      path: '/api',
+    });
 
     const app = getGitHubApp();
     if (!app) {
