@@ -537,7 +537,7 @@ router.get('/install-url', (_req: Request, res: Response, next: NextFunction) =>
  * GET /api/onboarding/auth/login
  * Start the OAuth flow to authenticate a user
  */
-router.get('/auth/login', (_req: Request, res: Response, next: NextFunction) => {
+function handleOAuthLogin(_req: Request, res: Response, next: NextFunction): void {
   try {
     const app = getGitHubApp();
 
@@ -549,8 +549,18 @@ router.get('/auth/login', (_req: Request, res: Response, next: NextFunction) => 
     const baseUrl = getSetting('base_url') || '';
     const redirectUri = `${baseUrl}/api/auth/callback`;
 
-    // Generate and store state for CSRF protection
+    // Generate and store state for CSRF protection.
+    // Store per-state to allow multiple outstanding login attempts.
     const state = generateSecret(16);
+
+    // Best-effort cleanup of old states
+    db.prepare(
+      "DELETE FROM app_settings WHERE key LIKE 'oauth_state:%' AND updated_at < datetime('now', '-2 hours')"
+    ).run();
+
+    setSetting(`oauth_state:${state}`, new Date().toISOString());
+
+    // Legacy (single-state) key for backwards-compat/debugging
     setSetting('oauth_state', state);
 
     const authUrl = getOAuthAuthorizationUrl({
@@ -563,13 +573,19 @@ router.get('/auth/login', (_req: Request, res: Response, next: NextFunction) => 
   } catch (error) {
     next(error);
   }
-});
+}
+
+// When mounted at /api/onboarding
+router.get('/auth/login', handleOAuthLogin);
+
+// When mounted at /api/auth
+router.get('/login', handleOAuthLogin);
 
 /**
  * GET /api/auth/callback
  * Handle the OAuth callback from GitHub
  */
-router.get('/auth/callback', async (req: Request, res: Response, next: NextFunction) => {
+async function handleOAuthCallback(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { code, state } = req.query;
 
@@ -578,14 +594,31 @@ router.get('/auth/callback', async (req: Request, res: Response, next: NextFunct
       return;
     }
 
-    // Verify state
-    const expectedState = getSetting('oauth_state');
-    if (state !== expectedState) {
+    if (!state || typeof state !== 'string') {
+      res.status(400).json({ error: 'Missing state parameter' });
+      return;
+    }
+
+    // Verify state.
+    // Prefer per-state key (supports multiple outstanding login attempts).
+    const stateKey = `oauth_state:${state}`;
+    const stateRow = db
+      .prepare('SELECT value FROM app_settings WHERE key = ?')
+      .get(stateKey) as AppSettingRow | undefined;
+
+    const legacyExpectedState = getSetting('oauth_state');
+    const stateValid = !!stateRow || state === legacyExpectedState;
+
+    if (!stateValid) {
       res.status(400).json({ error: 'Invalid state parameter' });
       return;
     }
 
-    // Clear the state
+    // Clear used state
+    if (stateRow) {
+      db.prepare('DELETE FROM app_settings WHERE key = ?').run(stateKey);
+    }
+    // Always clear legacy key too (best effort)
     db.prepare('DELETE FROM app_settings WHERE key = ?').run('oauth_state');
 
     const app = getGitHubApp();
@@ -658,7 +691,13 @@ router.get('/auth/callback', async (req: Request, res: Response, next: NextFunct
   } catch (error) {
     next(error);
   }
-});
+}
+
+// When mounted at /api/onboarding
+router.get('/auth/callback', handleOAuthCallback);
+
+// When mounted at /api/auth
+router.get('/callback', handleOAuthCallback);
 
 /**
  * GET /api/onboarding/auth/me
