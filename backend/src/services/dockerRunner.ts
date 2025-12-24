@@ -5,8 +5,7 @@
 
 import Docker from 'dockerode';
 import { db, type RunnerRow } from '../db/index.js';
-import { decrypt } from '../utils/index.js';
-import { createGitHubClient, type GitHubScope } from './github.js';
+import { resolveCredentialById, createClientFromCredentialId } from './credentialResolver.js';
 
 // Docker client
 let docker: Docker | null = null;
@@ -28,7 +27,6 @@ const updateRunnerContainerId = db.prepare(`
 const updateRunnerGitHubId = db.prepare(`
   UPDATE runners SET github_runner_id = ?, updated_at = datetime('now') WHERE id = ?
 `);
-const getCredentialById = db.prepare('SELECT * FROM credentials WHERE id = ?');
 
 /**
  * Initialize Docker client
@@ -163,27 +161,17 @@ export async function createDockerRunner(
     throw new Error(`Unsupported Docker architecture: ${architecture}`);
   }
   
-  // Get credential
-  const credential = getCredentialById.get(credentialId) as any;
-  if (!credential) {
-    throw new Error('Credential not found');
-  }
-  
-  // Decrypt token
-  const token = decrypt({
-    encrypted: credential.encrypted_token,
-    iv: credential.iv,
-    authTag: credential.auth_tag,
-  });
+  // Resolve credential and get token
+  const resolved = await resolveCredentialById(credentialId);
   
   // Get registration token
-  const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+  const client = await createClientFromCredentialId(credentialId);
   const regToken = await client.createRegistrationToken();
   
   // Build repo URL
-  const repoUrl = credential.scope === 'repo'
-    ? `https://github.com/${credential.target}`
-    : `https://github.com/${credential.target}`;
+  const repoUrl = resolved.scope === 'repo'
+    ? `https://github.com/${resolved.target}`
+    : `https://github.com/${resolved.target}`;
   
   // Pull image and get the platform-specific tag
   const imageTag = await pullRunnerImage(dockerArch);
@@ -209,8 +197,8 @@ export async function createDockerRunner(
   }
   
   // For organization scope
-  if (credential.scope === 'org') {
-    env.push(`ORG_NAME=${credential.target}`);
+  if (resolved.scope === 'org') {
+    env.push(`ORG_NAME=${resolved.target}`);
   }
   
   updateRunnerStatus.run('configuring', runnerId);
@@ -318,17 +306,8 @@ export async function removeDockerRunner(runnerId: string): Promise<void> {
   // Remove from GitHub first
   if (runner.github_runner_id) {
     try {
-      const credential = getCredentialById.get(runner.credential_id) as any;
-      if (credential) {
-        const token = decrypt({
-          encrypted: credential.encrypted_token,
-          iv: credential.iv,
-          authTag: credential.auth_tag,
-        });
-        
-        const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
-        await client.deleteRunner(runner.github_runner_id);
-      }
+      const client = await createClientFromCredentialId(runner.credential_id);
+      await client.deleteRunner(runner.github_runner_id);
     } catch (error) {
       console.error('Failed to deregister runner from GitHub:', error);
     }
@@ -437,21 +416,12 @@ export async function syncDockerRunnerStatus(runnerId: string): Promise<void> {
     // Check GitHub status for busy state
     if (runner.github_runner_id) {
       try {
-        const credential = getCredentialById.get(runner.credential_id) as any;
-        if (credential) {
-          const token = decrypt({
-            encrypted: credential.encrypted_token,
-            iv: credential.iv,
-            authTag: credential.auth_tag,
-          });
-          
-          const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
-          const ghRunner = await client.getRunner(runner.github_runner_id);
-          
-          if (ghRunner?.busy) {
-            updateRunnerStatus.run('busy', runnerId);
-            return;
-          }
+        const client = await createClientFromCredentialId(runner.credential_id);
+        const ghRunner = await client.getRunner(runner.github_runner_id);
+        
+        if (ghRunner?.busy) {
+          updateRunnerStatus.run('busy', runnerId);
+          return;
         }
       } catch {
         // Continue with container status

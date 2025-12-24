@@ -121,6 +121,75 @@ export type OrganizationsResponse = { organizations: Organization[] };
 export type GitHubRunnersResponse = { runners: GitHubRunner[] };
 export type ValidationResponse = { valid: boolean; login?: string; error?: string };
 
+// Onboarding types
+export type SetupStatus = {
+  isComplete: boolean;
+  steps: {
+    githubApp: {
+      complete: boolean;
+      appName?: string;
+      appSlug?: string;
+    };
+    installation: {
+      complete: boolean;
+      count: number;
+    };
+  };
+};
+
+export type GitHubAppInfo = {
+  appId: number;
+  slug: string;
+  name: string;
+  clientId: string;
+  owner: {
+    login: string;
+    id: number;
+    type: 'User' | 'Organization';
+  };
+  htmlUrl: string | null;
+  permissions: Record<string, 'read' | 'write'>;
+  events: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GitHubAppManifestResponse = {
+  manifest: Record<string, unknown>;
+  manifestJson: string;
+  githubUrl: string;
+  state: string;
+};
+
+export type GitHubAppInstallation = {
+  id: number;
+  appId: number;
+  targetId: number;
+  targetType: 'User' | 'Organization';
+  account: {
+    login: string;
+    id: number;
+  };
+  repositorySelection: 'all' | 'selected';
+  permissions: Record<string, string>;
+  events: string[];
+  suspendedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InstallationsResponse = {
+  installations: GitHubAppInstallation[];
+};
+
+export type AuthUser = {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+};
+
 // WebSocket message types
 export type WebSocketMessage = {
   type: 'runner_update' | 'pool_update' | 'credential_update';

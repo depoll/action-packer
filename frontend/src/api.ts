@@ -18,6 +18,44 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// Custom error class for API errors
+export class ApiError extends Error {
+  code: string;
+  status: number;
+  
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+  }
+  
+  get isAuthError(): boolean {
+    return this.status === 401 || this.status === 403;
+  }
+  
+  get isNotAuthenticated(): boolean {
+    return this.code === 'NOT_AUTHENTICATED' || this.code === 'SESSION_EXPIRED';
+  }
+  
+  get isNotAdmin(): boolean {
+    return this.code === 'NOT_ADMIN';
+  }
+}
+
+// Event emitter for auth errors
+type AuthErrorListener = (error: ApiError) => void;
+const authErrorListeners: Set<AuthErrorListener> = new Set();
+
+export function onAuthError(listener: AuthErrorListener): () => void {
+  authErrorListeners.add(listener);
+  return () => authErrorListeners.delete(listener);
+}
+
+function notifyAuthError(error: ApiError): void {
+  authErrorListeners.forEach(listener => listener(error));
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -26,6 +64,7 @@ async function request<T>(
   
   const response = await fetch(url, {
     ...options,
+    credentials: 'include', // Include cookies for session auth
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -33,8 +72,23 @@ async function request<T>(
   });
   
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({ 
+      error: 'Request failed',
+      code: 'UNKNOWN_ERROR'
+    }));
+    
+    const apiError = new ApiError(
+      error.message || error.error || `HTTP ${response.status}`,
+      error.code || 'UNKNOWN_ERROR',
+      response.status
+    );
+    
+    // Notify listeners of auth errors
+    if (apiError.isAuthError) {
+      notifyAuthError(apiError);
+    }
+    
+    throw apiError;
   }
   
   // Handle 204 No Content
@@ -184,6 +238,72 @@ export const poolsApi = {
   
   removeWebhook: (id: string) =>
     request<void>(`/api/pools/${id}/webhook`, { method: 'DELETE' }),
+};
+
+// Onboarding API
+export const onboardingApi = {
+  getStatus: () =>
+    request<import('./types').SetupStatus>('/api/onboarding/status'),
+  
+  setBaseUrl: (baseUrl: string) =>
+    request<{ success: boolean; baseUrl: string }>('/api/onboarding/base-url', {
+      method: 'POST',
+      body: JSON.stringify({ baseUrl }),
+    }),
+  
+  getManifest: (options?: { org?: string; name?: string }) => {
+    const params = new URLSearchParams();
+    if (options?.org) params.set('org', options.org);
+    if (options?.name) params.set('name', options.name);
+    const query = params.toString();
+    return request<import('./types').GitHubAppManifestResponse>(
+      `/api/onboarding/manifest${query ? `?${query}` : ''}`
+    );
+  },
+  
+  getGitHubApp: () =>
+    request<import('./types').GitHubAppInfo>('/api/onboarding/github-app'),
+  
+  setupGitHubAppManual: (data: {
+    appId: number;
+    appName?: string;
+    clientId: string;
+    clientSecret: string;
+    privateKey: string;
+    webhookSecret?: string;
+  }) =>
+    request<{ success: boolean; app: { id: number; slug: string; name: string } }>(
+      '/api/onboarding/github-app/manual',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+  
+  deleteGitHubApp: () =>
+    request<void>('/api/onboarding/github-app', { method: 'DELETE' }),
+  
+  getInstallations: (refresh?: boolean) =>
+    request<import('./types').InstallationsResponse>(
+      `/api/onboarding/installations${refresh ? '?refresh=true' : ''}`
+    ),
+
+  syncCredentials: () =>
+    request<import('./types').InstallationsResponse>(
+      '/api/onboarding/installations?refresh=true'
+    ),
+  
+  getInstallUrl: () =>
+    request<{ installUrl: string; appSlug: string }>('/api/onboarding/install-url'),
+  
+  getAuthLoginUrl: () =>
+    request<{ authUrl: string; state: string }>('/api/onboarding/auth/login'),
+  
+  getCurrentUser: () =>
+    request<{ user: import('./types').AuthUser }>('/api/onboarding/auth/me'),
+  
+  logout: () =>
+    request<{ success: boolean }>('/api/onboarding/auth/logout', { method: 'POST' }),
 };
 
 // Health check

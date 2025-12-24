@@ -14,9 +14,15 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  CloudDownload,
+  Building2,
+  User,
+  GitBranch,
+  Settings,
+  ChevronRight,
 } from 'lucide-react';
-import { credentialsApi } from '../api';
-import type { Credential } from '../types';
+import { credentialsApi, onboardingApi } from '../api';
+import type { Credential, GitHubAppInstallation } from '../types';
 
 type CredentialFormData = {
   name: string;
@@ -262,6 +268,187 @@ function CredentialCard({
   );
 }
 
+function InstallationCard({
+  installation,
+  credentials,
+  onManage,
+}: {
+  installation: GitHubAppInstallation;
+  credentials: Credential[];
+  onManage: () => void;
+}) {
+  const linkedCredentials = credentials.filter(
+    (c) => c.type === 'github_app' && c.target.startsWith(installation.account.login)
+  );
+  
+  const isOrg = installation.targetType === 'Organization';
+  const Icon = isOrg ? Building2 : User;
+  
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${isOrg ? 'bg-blue-900/50' : 'bg-purple-900/50'}`}>
+            <Icon className={`h-5 w-5 ${isOrg ? 'text-blue-300' : 'text-purple-300'}`} />
+          </div>
+          <div>
+            <h3 className="font-medium flex items-center gap-2">
+              {installation.account.login}
+              <span className={`text-xs px-2 py-0.5 rounded ${isOrg ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'}`}>
+                {isOrg ? 'Organization' : 'User'}
+              </span>
+            </h3>
+            <p className="text-sm text-muted">
+              {installation.repositorySelection === 'all' 
+                ? 'All repositories' 
+                : 'Selected repositories'}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <a
+            href={`https://github.com/settings/installations/${installation.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-ghost btn-sm"
+            title="Manage installation on GitHub"
+          >
+            <Settings className="h-4 w-4" />
+          </a>
+        </div>
+      </div>
+      
+      {/* Linked credentials */}
+      {linkedCredentials.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-forest-700">
+          <p className="text-xs text-muted mb-2">Credentials ({linkedCredentials.length})</p>
+          <div className="space-y-1">
+            {linkedCredentials.slice(0, 3).map((cred) => (
+              <div key={cred.id} className="flex items-center gap-2 text-sm text-forest-300">
+                <GitBranch className="h-3 w-3" />
+                <span className="truncate">{cred.target}</span>
+              </div>
+            ))}
+            {linkedCredentials.length > 3 && (
+              <button
+                onClick={onManage}
+                className="text-xs text-forest-400 hover:text-forest-300 flex items-center gap-1"
+              >
+                +{linkedCredentials.length - 3} more
+                <ChevronRight className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {installation.suspendedAt && (
+        <div className="mt-3 p-2 bg-yellow-900/30 text-yellow-300 rounded-md text-sm">
+          ⚠️ Installation suspended
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InstallationsSection({ 
+  credentials,
+  onRefresh,
+  isRefreshing,
+}: { 
+  credentials: Credential[];
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  const { data: installationsData, isLoading, refetch } = useQuery({
+    queryKey: ['installations'],
+    queryFn: () => onboardingApi.getInstallations(),
+  });
+  
+  const { data: installUrlData } = useQuery({
+    queryKey: ['install-url'],
+    queryFn: () => onboardingApi.getInstallUrl(),
+  });
+  
+  const installations = installationsData?.installations || [];
+  
+  const handleRefresh = async () => {
+    await onRefresh();
+    await refetch();
+  };
+  
+  const handleAddInstallation = () => {
+    if (installUrlData?.installUrl) {
+      window.open(installUrlData.installUrl, '_blank');
+    }
+  };
+  
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">GitHub App Installations</h2>
+          <p className="text-sm text-muted">
+            Organizations and users where the GitHub App is installed
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="btn btn-ghost btn-sm"
+            title="Refresh installations"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+          {installUrlData?.installUrl && (
+            <button
+              onClick={handleAddInstallation}
+              className="btn btn-secondary btn-sm"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Installation
+            </button>
+          )}
+        </div>
+      </div>
+      
+      {isLoading ? (
+        <div className="text-center py-4 text-muted">Loading installations...</div>
+      ) : installations.length === 0 ? (
+        <div className="card text-center py-8">
+          <Building2 className="h-10 w-10 mx-auto text-forest-500 mb-3" />
+          <p className="text-muted">No GitHub App installations found</p>
+          <p className="text-sm text-forest-500 mt-1">
+            Install the GitHub App on an organization or your user account
+          </p>
+          {installUrlData?.installUrl && (
+            <button
+              onClick={handleAddInstallation}
+              className="btn btn-primary mt-4"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Install GitHub App
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {installations.map((installation) => (
+            <InstallationCard
+              key={installation.id}
+              installation={installation}
+              credentials={credentials}
+              onManage={() => {/* scroll to credentials */}}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CredentialManager() {
   const [showAddForm, setShowAddForm] = useState(false);
   const queryClient = useQueryClient();
@@ -277,6 +464,14 @@ export function CredentialManager() {
       queryClient.invalidateQueries({ queryKey: ['credentials'] });
     },
   });
+
+  const syncMutation = useMutation({
+    mutationFn: onboardingApi.syncCredentials,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credentials'] });
+      queryClient.invalidateQueries({ queryKey: ['installations'] });
+    },
+  });
   
   const handleDelete = (id: string) => {
     if (confirm('Are you sure you want to delete this credential? This will also remove any associated runners.')) {
@@ -287,57 +482,94 @@ export function CredentialManager() {
   const credentials = data?.credentials || [];
   
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Credentials</h1>
-          <p className="text-muted mt-1">
-            Manage GitHub Personal Access Tokens for runner registration
-          </p>
-        </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="btn btn-primary"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Credential
-        </button>
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-bold">Credentials</h1>
+        <p className="text-muted mt-1">
+          Manage GitHub App installations and credentials for runner registration
+        </p>
       </div>
       
-      {/* Content */}
-      {isLoading ? (
-        <div className="text-center py-8 text-muted">Loading...</div>
-      ) : error ? (
-        <div className="card bg-red-900/30 border-red-700 text-red-200">
-          Failed to load credentials: {error instanceof Error ? error.message : 'Unknown error'}
+      {/* GitHub App Installations Section */}
+      <InstallationsSection
+        credentials={credentials}
+        onRefresh={() => syncMutation.mutateAsync()}
+        isRefreshing={syncMutation.isPending}
+      />
+      
+      {/* Credentials Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Credentials</h2>
+            <p className="text-sm text-muted">
+              GitHub tokens and app credentials for runner registration
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className="btn btn-ghost btn-sm"
+              title="Sync credentials from GitHub App installations"
+            >
+              <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="btn btn-secondary btn-sm"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add PAT
+            </button>
+          </div>
         </div>
-      ) : credentials.length === 0 ? (
-        <div className="card text-center py-12">
-          <Key className="h-12 w-12 mx-auto text-forest-500 mb-4" />
-          <p className="text-muted">No credentials configured</p>
-          <p className="text-sm text-forest-500 mt-2">
-            Add a GitHub PAT to start registering runners
-          </p>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="btn btn-primary mt-4"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Your First Credential
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {credentials.map((credential) => (
-            <CredentialCard
-              key={credential.id}
-              credential={credential}
-              onDelete={handleDelete}
-            />
-          ))}
-        </div>
-      )}
+        
+        {/* Credentials Content */}
+        {isLoading ? (
+          <div className="text-center py-8 text-muted">Loading...</div>
+        ) : error ? (
+          <div className="card bg-red-900/30 border-red-700 text-red-200">
+            Failed to load credentials: {error instanceof Error ? error.message : 'Unknown error'}
+          </div>
+        ) : credentials.length === 0 ? (
+          <div className="card text-center py-8">
+            <Key className="h-10 w-10 mx-auto text-forest-500 mb-3" />
+            <p className="text-muted">No credentials configured</p>
+            <p className="text-sm text-forest-500 mt-1">
+              Sync from your GitHub App installations or add a PAT manually
+            </p>
+            <div className="flex gap-2 justify-center mt-4">
+              <button
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+                className="btn btn-secondary btn-sm"
+              >
+                <CloudDownload className={`h-4 w-4 mr-2 ${syncMutation.isPending ? 'animate-pulse' : ''}`} />
+                {syncMutation.isPending ? 'Syncing...' : 'Sync from GitHub'}
+              </button>
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="btn btn-primary btn-sm"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add PAT
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {credentials.map((credential) => (
+              <CredentialCard
+                key={credential.id}
+                credential={credential}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       
       {/* Add Form Modal */}
       {showAddForm && (

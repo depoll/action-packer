@@ -47,6 +47,9 @@ vi.mock('../api', () => ({
       login: 'testuser',
     }),
   },
+  onboardingApi: {
+    syncCredentials: vi.fn().mockResolvedValue({ installations: [] }),
+  },
 }));
 
 describe('CredentialManager', () => {
@@ -70,11 +73,12 @@ describe('CredentialManager', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Credentials/i })).toBeInTheDocument();
+      // Use level 1 to find the main page heading (h1)
+      expect(screen.getByRole('heading', { name: /Credentials/i, level: 1 })).toBeInTheDocument();
     });
   });
 
-  it('displays the Add Credential button', async () => {
+  it('displays the Add PAT button', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <CredentialManager />
@@ -82,7 +86,7 @@ describe('CredentialManager', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Add Credential')).toBeInTheDocument();
+      expect(screen.getByText('Add PAT')).toBeInTheDocument();
     });
   });
 
@@ -107,10 +111,10 @@ describe('CredentialManager', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Add Credential')).toBeInTheDocument();
+      expect(screen.getByText('Add PAT')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Add Credential'));
+    fireEvent.click(screen.getByText('Add PAT'));
 
     await waitFor(() => {
       expect(screen.getByText('Add GitHub Credential')).toBeInTheDocument();

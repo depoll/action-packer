@@ -472,3 +472,17 @@ export function createGitHubClient(
 ): GitHubClient {
   return new GitHubClient(token, scope, target);
 }
+/**
+ * Create a GitHub client from an Octokit instance (for GitHub App authentication)
+ */
+export function createGitHubClientFromOctokit(
+  octokit: Octokit,
+  scope: GitHubScope,
+  target: string
+): GitHubClient {
+  // Create a client and replace its octokit
+  const client = new GitHubClient('', scope, target);
+  // @ts-expect-error - accessing private property for GitHub App integration
+  client.octokit = octokit;
+  return client;
+}

@@ -6,7 +6,6 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { db, type RunnerRow, type CredentialRow } from '../db/index.js';
-import { decrypt } from '../utils/index.js';
 import {
   detectPlatform,
   stopRunner,
@@ -19,8 +18,7 @@ import {
   removeDockerRunner,
   syncDockerRunnerStatus,
   isDockerAvailable,
-  createGitHubClient,
-  type GitHubScope,
+  createClientFromCredential,
 } from '../services/index.js';
 
 export const runnersRouter = Router();
@@ -244,13 +242,7 @@ runnersRouter.post('/', async (req: Request, res: Response) => {
           await startNativeRunner(id, runnerDir);
           
           // Get GitHub runner ID
-          const token = decrypt({
-            encrypted: credential.encrypted_token,
-            iv: credential.iv,
-            authTag: credential.auth_tag,
-          });
-          
-          const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+          const client = await createClientFromCredential(credential);
           const runners = await client.listRunners();
           const ghRunner = runners.find(r => r.name === body.name);
           
@@ -309,13 +301,7 @@ runnersRouter.patch('/:id', async (req: Request, res: Response) => {
       if (runner.github_runner_id) {
         try {
           const credential = getCredentialById.get(runner.credential_id) as CredentialRow;
-          const token = decrypt({
-            encrypted: credential.encrypted_token,
-            iv: credential.iv,
-            authTag: credential.auth_tag,
-          });
-          
-          const client = createGitHubClient(token, credential.scope as GitHubScope, credential.target);
+          const client = await createClientFromCredential(credential);
           await client.setRunnerLabels(runner.github_runner_id, body.labels);
         } catch (error) {
           console.error('Failed to update labels on GitHub:', error);
