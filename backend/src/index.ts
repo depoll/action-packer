@@ -14,7 +14,7 @@ import { runnersRouter } from './routes/runners.js';
 import { poolsRouter } from './routes/pools.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { onboardingRouter, authRouter, githubAppRouter } from './routes/onboarding.js';
-import { logsRouter } from './routes/logs.js';
+import { logsRouter, setBroadcastFunction } from './routes/logs.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/auth.js';
 import { initializeSchema, db } from './db/index.js';
@@ -80,6 +80,9 @@ export function broadcast(type: string, data: unknown): void {
     }
   });
 }
+
+// Register the broadcast function with the logs router to avoid circular imports
+setBroadcastFunction(broadcast);
 
 // Middleware
 app.use(cors({

@@ -74,9 +74,24 @@ export function LogViewer() {
   const [lastId, setLastId] = useState(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const queryClient = useQueryClient();
   const { lastMessage } = useWebSocket();
+
+  // Close filter menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setShowFilterMenu(false);
+      }
+    }
+    
+    if (showFilterMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showFilterMenu]);
 
   // Initial load of logs
   const { isLoading } = useQuery({
@@ -126,10 +141,11 @@ export function LogViewer() {
           });
           setLastId(response.lastId);
         }
-      } catch {
-        // Ignore polling errors
+      } catch (error) {
+        // Log polling errors for debugging but don't disrupt the UI
+        console.debug('Log polling error (ignored):', error);
       }
-    }, 2000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [lastId, isPaused]);
@@ -207,10 +223,15 @@ export function LogViewer() {
           </div>
 
           {/* Filter dropdown */}
-          <div className="relative">
+          <div className="relative" ref={filterRef}>
             <button
               onClick={() => setShowFilterMenu(!showFilterMenu)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setShowFilterMenu(false);
+              }}
               className="btn btn-secondary flex items-center gap-2"
+              aria-haspopup="menu"
+              aria-expanded={showFilterMenu}
             >
               <Filter className="h-4 w-4" />
               {filter === 'all' ? 'All Levels' : filter.toUpperCase()}
@@ -218,10 +239,18 @@ export function LogViewer() {
             </button>
 
             {showFilterMenu && (
-              <div className="absolute right-0 top-full mt-1 w-40 bg-forest-800 border border-forest-600 rounded-md shadow-lg z-10">
+              <div 
+                className="absolute right-0 top-full mt-1 w-40 bg-forest-800 border border-forest-600 rounded-md shadow-lg z-10"
+                role="menu"
+                aria-orientation="vertical"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setShowFilterMenu(false);
+                }}
+              >
                 {(['all', 'error', 'warn', 'info', 'debug'] as const).map((level) => (
                   <button
                     key={level}
+                    role="menuitem"
                     onClick={() => {
                       setFilter(level);
                       setShowFilterMenu(false);

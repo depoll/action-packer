@@ -31,6 +31,13 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const eventSourceRef = useRef<EventSource | null>(null);
+  // Use ref for isPaused to avoid closure issues in event handlers
+  const isPausedRef = useRef(isPaused);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   // Fetch initial logs
   const { data: initialData, isLoading, refetch } = useQuery({
@@ -55,7 +62,8 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
     setStreamLogs([]);
 
     eventSource.onmessage = (event) => {
-      if (isPaused) return;
+      // Use ref to get current isPaused value (avoids closure issues)
+      if (isPausedRef.current) return;
       
       try {
         const data = JSON.parse(event.data);

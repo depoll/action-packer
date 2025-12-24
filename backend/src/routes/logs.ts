@@ -27,6 +27,17 @@ export type LogEntry = {
 
 let logIdCounter = 0;
 
+// Broadcast function reference - set by index.ts after server starts
+let broadcastFn: ((type: string, data: unknown) => void) | null = null;
+
+/**
+ * Set the broadcast function to use for log streaming.
+ * Called by index.ts after the WebSocket server is initialized.
+ */
+export function setBroadcastFunction(fn: (type: string, data: unknown) => void): void {
+  broadcastFn = fn;
+}
+
 // Capture console output and store in ring buffer
 const originalConsoleLog = console.log;
 const originalConsoleWarn = console.warn;
@@ -49,16 +60,13 @@ function addLogEntry(level: LogLevel, message: string, source = 'app'): void {
     logBuffer.shift();
   }
   
-  // Broadcast to WebSocket clients
-  try {
-    // Dynamic import to avoid circular dependency
-    import('../index.js').then(({ broadcast }) => {
-      broadcast('log_entry', entry);
-    }).catch(() => {
-      // Ignore broadcast errors during startup
-    });
-  } catch {
-    // Ignore errors
+  // Broadcast to WebSocket clients if broadcast function is available
+  if (broadcastFn) {
+    try {
+      broadcastFn('log_entry', entry);
+    } catch {
+      // Ignore broadcast errors - connection may be closed
+    }
   }
 }
 
@@ -111,16 +119,9 @@ logsRouter.get('/', (req: Request, res: Response) => {
       ? logBuffer.filter(log => log.id > since)
       : logBuffer.slice(-limit);
     
-    // Filter by level if specified
+    // Filter by level if specified (exact match)
     if (level) {
-      const levels: LogLevel[] = level === 'error' 
-        ? ['error'] 
-        : level === 'warn' 
-          ? ['error', 'warn']
-          : level === 'info'
-            ? ['error', 'warn', 'info']
-            : ['error', 'warn', 'info', 'debug'];
-      logs = logs.filter(log => levels.includes(log.level));
+      logs = logs.filter(log => log.level === level);
     }
     
     res.json({ 
@@ -236,52 +237,61 @@ function parseDockerLogs(rawLogs: string): Array<{ timestamp: string; message: s
 }
 
 /**
- * Get logs for a native runner from its log files
+ * Get logs for a native runner from its log files.
+ * Uses Node.js fs APIs to avoid shell command injection vulnerabilities.
  */
 async function getNativeRunnerLogs(runnerDir: string, tail: number): Promise<Array<{ timestamp: string; message: string }>> {
   const logs: Array<{ timestamp: string; message: string }> = [];
+  const fs = await import('node:fs/promises');
+  const diagDir = path.join(runnerDir, '_diag');
   
   try {
-    // Check common log locations
-    const logFiles = [
-      path.join(runnerDir, '_diag', 'Runner_*.log'),
-      path.join(runnerDir, '_diag', 'Worker_*.log'),
-    ];
+    // Read directory and find log files
+    const files = await fs.readdir(diagDir).catch(() => [] as string[]);
+    const logFiles = files.filter(f => f.startsWith('Runner_') || f.startsWith('Worker_'));
     
-    // Use tail to get last N lines from log files
-    const { execSync } = await import('child_process');
-    
-    for (const pattern of logFiles) {
+    for (const logFile of logFiles) {
+      const filePath = path.join(diagDir, logFile);
       try {
-        const result = execSync(`tail -n ${tail} ${pattern} 2>/dev/null || true`, {
-          encoding: 'utf-8',
-          maxBuffer: 1024 * 1024,
-        });
+        const content = await fs.readFile(filePath, 'utf-8');
+        const lines = content.split('\n').filter(line => line.trim());
         
-        if (result) {
-          const lines = result.split('\n').filter(line => line.trim());
-          for (const line of lines) {
-            // Try to parse timestamp from log line
-            const match = line.match(/^\[(\d{4}-\d{2}-\d{2}\s+[\d:.]+)\s+\w+\s+\w+\]\s*(.*)$/);
-            if (match) {
-              logs.push({
-                timestamp: new Date(match[1]).toISOString(),
-                message: match[2],
-              });
-            } else {
-              logs.push({
-                timestamp: new Date().toISOString(),
-                message: line,
-              });
-            }
+        // Take last N lines from this file
+        const relevantLines = lines.slice(-tail);
+        
+        for (const line of relevantLines) {
+          // Try to parse timestamp in expected format "YYYY-MM-DD HH:MM:SS.mmm"
+          const match = line.match(/^\[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})\s+\w+\s+\w+\]\s*(.*)$/);
+          if (match) {
+            const [, datePart, timePart, message] = match;
+            const isoString = `${datePart}T${timePart}Z`;
+            const parsed = new Date(isoString);
+            
+            logs.push({
+              timestamp: Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(),
+              message,
+            });
+          } else {
+            logs.push({
+              timestamp: new Date().toISOString(),
+              message: line,
+            });
           }
         }
-      } catch {
-        // Ignore errors for individual files
+      } catch (error) {
+        // Log file read errors for diagnostics but continue with other files
+        originalConsoleDebug('Failed to read native runner log file; continuing', {
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
-  } catch {
-    // Return empty if we can't read logs
+  } catch (error) {
+    // Log directory read errors for diagnostics
+    originalConsoleDebug('Failed to read native runner logs directory; returning empty list', {
+      diagDir,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
   
   // Sort by timestamp and return last N entries
@@ -313,6 +323,13 @@ async function streamDockerLogs(containerId: string, res: Response, req: Request
       timestamps: true,
     });
     
+    // Set up cleanup handler immediately after creating stream
+    req.on('close', () => {
+      if ('destroy' in stream && typeof stream.destroy === 'function') {
+        stream.destroy();
+      }
+    });
+    
     // Handle stream data
     stream.on('data', (chunk: Buffer) => {
       const lines = chunk.toString().split('\n').filter(line => line.trim());
@@ -332,13 +349,6 @@ async function streamDockerLogs(containerId: string, res: Response, req: Request
     stream.on('error', (error: Error) => {
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
       res.end();
-    });
-    
-    // Clean up on client disconnect
-    req.on('close', () => {
-      if ('destroy' in stream && typeof stream.destroy === 'function') {
-        stream.destroy();
-      }
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
