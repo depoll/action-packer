@@ -167,7 +167,7 @@ webhooksRouter.post('/github', async (req: Request, res: Response) => {
           try {
             const effectiveLabels = getPoolEffectiveLabels(pool);
             const matches = labelsMatch(effectiveLabels, jobLabels);
-            console.log(`[webhook] Pool ${pool.name} (platform=${pool.platform}, arch=${pool.architecture}) labels=[${effectiveLabels.join(',')}] matches=${matches}`);
+            console.log(`[webhook] Pool ${pool.name} (platform=${pool.platform}, arch=${pool.architecture}, isolation=${pool.isolation_type}) labels=[${effectiveLabels.join(',')}] matches=${matches}`);
             
             if (matches) {
               matchedPools++;
