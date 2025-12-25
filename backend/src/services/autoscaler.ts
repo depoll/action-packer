@@ -48,6 +48,44 @@ export function labelsMatch(poolLabels: string[], jobLabels: string[]): boolean 
 }
 
 /**
+ * Get the effective labels for a pool, including default labels that GitHub
+ * automatically applies based on the runner's OS and architecture.
+ * 
+ * GitHub adds these default labels to all self-hosted runners:
+ * - "self-hosted" (always)
+ * - OS label: "linux", "macos", or "windows"
+ * - Architecture label: "x64", "arm64", or "arm"
+ */
+export function getPoolEffectiveLabels(pool: RunnerPoolRow): string[] {
+  const customLabels = JSON.parse(pool.labels) as string[];
+  
+  // Map platform to GitHub's OS label
+  const osLabel = {
+    'linux': 'Linux',
+    'darwin': 'macOS',
+    'win32': 'Windows',
+  }[pool.platform] || pool.platform;
+  
+  // Map architecture to GitHub's arch label
+  const archLabel = {
+    'x64': 'X64',
+    'arm64': 'ARM64',
+  }[pool.architecture] || pool.architecture;
+  
+  // Combine default labels with custom labels (avoiding duplicates)
+  const defaultLabels = ['self-hosted', osLabel, archLabel];
+  const allLabels = [...defaultLabels];
+  
+  for (const label of customLabels) {
+    if (!allLabels.some(l => l.toLowerCase() === label.toLowerCase())) {
+      allLabels.push(label);
+    }
+  }
+  
+  return allLabels;
+}
+
+/**
  * Scale up: create a new ephemeral runner for the pool.
  */
 export async function scaleUp(pool: RunnerPoolRow): Promise<string | null> {

@@ -6,7 +6,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { labelsMatch } from '../src/services/autoscaler.js';
+import { labelsMatch, getPoolEffectiveLabels } from '../src/services/autoscaler.js';
+import type { RunnerPoolRow } from '../src/db/index.js';
 
 describe('labelsMatch', () => {
   describe('basic matching - pool has all job labels', () => {
@@ -89,5 +90,91 @@ describe('labelsMatch', () => {
       const jobLabels = ['self-hosted', 'linux'];
       expect(labelsMatch(poolLabels, jobLabels)).toBe(true);
     });
+  });
+});
+
+describe('getPoolEffectiveLabels', () => {
+  function createMockPool(overrides: Partial<RunnerPoolRow>): RunnerPoolRow {
+    return {
+      id: 'test-pool',
+      name: 'Test Pool',
+      credential_id: 'cred-1',
+      platform: 'linux',
+      architecture: 'x64',
+      isolation_type: 'docker',
+      labels: '[]',
+      min_runners: 0,
+      max_runners: 5,
+      warm_runners: 1,
+      idle_timeout_minutes: 10,
+      enabled: 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  it('should include self-hosted label', () => {
+    const pool = createMockPool({});
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels.map(l => l.toLowerCase())).toContain('self-hosted');
+  });
+
+  it('should map linux platform to Linux label', () => {
+    const pool = createMockPool({ platform: 'linux' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toContain('Linux');
+  });
+
+  it('should map darwin platform to macOS label', () => {
+    const pool = createMockPool({ platform: 'darwin' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toContain('macOS');
+  });
+
+  it('should map win32 platform to Windows label', () => {
+    const pool = createMockPool({ platform: 'win32' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toContain('Windows');
+  });
+
+  it('should map x64 architecture to X64 label', () => {
+    const pool = createMockPool({ architecture: 'x64' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toContain('X64');
+  });
+
+  it('should map arm64 architecture to ARM64 label', () => {
+    const pool = createMockPool({ architecture: 'arm64' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toContain('ARM64');
+  });
+
+  it('should include custom labels from pool', () => {
+    const pool = createMockPool({ labels: '["docker", "gpu"]' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toContain('docker');
+    expect(labels).toContain('gpu');
+  });
+
+  it('should not duplicate labels if custom label matches default', () => {
+    const pool = createMockPool({ platform: 'linux', labels: '["Linux", "self-hosted"]' });
+    const labels = getPoolEffectiveLabels(pool);
+    const linuxCount = labels.filter(l => l.toLowerCase() === 'linux').length;
+    const selfHostedCount = labels.filter(l => l.toLowerCase() === 'self-hosted').length;
+    expect(linuxCount).toBe(1);
+    expect(selfHostedCount).toBe(1);
+  });
+
+  it('should return correct labels for macOS ARM64 pool', () => {
+    const pool = createMockPool({ platform: 'darwin', architecture: 'arm64', labels: '[]' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toEqual(['self-hosted', 'macOS', 'ARM64']);
+  });
+
+  it('should return correct labels for Linux x64 Docker pool', () => {
+    const pool = createMockPool({ platform: 'linux', architecture: 'x64', labels: '["docker"]' });
+    const labels = getPoolEffectiveLabels(pool);
+    expect(labels).toEqual(['self-hosted', 'Linux', 'X64', 'docker']);
   });
 });
