@@ -101,7 +101,7 @@ describe('getPoolEffectiveLabels', () => {
       credential_id: 'cred-1',
       platform: 'linux',
       architecture: 'x64',
-      isolation_type: 'docker',
+      isolation_type: 'native',
       labels: '[]',
       min_runners: 0,
       max_runners: 5,
@@ -173,8 +173,59 @@ describe('getPoolEffectiveLabels', () => {
   });
 
   it('should return correct labels for Linux x64 Docker pool', () => {
-    const pool = createMockPool({ platform: 'linux', architecture: 'x64', labels: '["docker"]' });
+    const pool = createMockPool({ platform: 'linux', architecture: 'x64', isolation_type: 'docker', labels: '["docker"]' });
     const labels = getPoolEffectiveLabels(pool);
     expect(labels).toEqual(['self-hosted', 'Linux', 'X64', 'docker']);
+  });
+
+  describe('Docker isolation', () => {
+    it('should use Linux label for Docker pools regardless of host platform', () => {
+      // Docker on macOS host - runner is still Linux
+      const pool = createMockPool({ 
+        platform: 'darwin', 
+        architecture: 'x64', 
+        isolation_type: 'docker',
+        labels: '[]' 
+      });
+      const labels = getPoolEffectiveLabels(pool);
+      expect(labels).toContain('Linux');
+      expect(labels).not.toContain('macOS');
+    });
+
+    it('should use Linux label for Docker on Windows host', () => {
+      const pool = createMockPool({ 
+        platform: 'win32', 
+        architecture: 'x64', 
+        isolation_type: 'docker',
+        labels: '[]' 
+      });
+      const labels = getPoolEffectiveLabels(pool);
+      expect(labels).toContain('Linux');
+      expect(labels).not.toContain('Windows');
+    });
+
+    it('should preserve architecture from pool for Docker', () => {
+      // Docker on ARM64 Mac running amd64 container via emulation
+      const pool = createMockPool({ 
+        platform: 'darwin', 
+        architecture: 'x64',  // amd64 container
+        isolation_type: 'docker',
+        labels: '[]' 
+      });
+      const labels = getPoolEffectiveLabels(pool);
+      expect(labels).toEqual(['self-hosted', 'Linux', 'X64']);
+    });
+
+    it('should use native platform for non-Docker isolation', () => {
+      const pool = createMockPool({ 
+        platform: 'darwin', 
+        architecture: 'arm64', 
+        isolation_type: 'native',
+        labels: '[]' 
+      });
+      const labels = getPoolEffectiveLabels(pool);
+      expect(labels).toContain('macOS');
+      expect(labels).not.toContain('Linux');
+    });
   });
 });

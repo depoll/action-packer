@@ -55,16 +55,25 @@ export function labelsMatch(poolLabels: string[], jobLabels: string[]): boolean 
  * - "self-hosted" (always)
  * - OS label: "linux", "macos", or "windows"
  * - Architecture label: "x64", "arm64", or "arm"
+ * 
+ * Note: Docker isolation always runs Linux containers, regardless of host OS.
  */
 export function getPoolEffectiveLabels(pool: RunnerPoolRow): string[] {
   const customLabels = JSON.parse(pool.labels) as string[];
+  
+  // Determine the effective OS for the runner
+  // Docker containers always run Linux regardless of host OS
+  let effectivePlatform = pool.platform;
+  if (pool.isolation_type === 'docker') {
+    effectivePlatform = 'linux';
+  }
   
   // Map platform to GitHub's OS label
   const osLabel = {
     'linux': 'Linux',
     'darwin': 'macOS',
     'win32': 'Windows',
-  }[pool.platform] || pool.platform;
+  }[effectivePlatform] || effectivePlatform;
   
   // Map architecture to GitHub's arch label
   const archLabel = {
