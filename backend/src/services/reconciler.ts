@@ -297,8 +297,9 @@ async function cleanupOrphanedRunner(runner: RunnerRow): Promise<void> {
 /**
  * Clean up orphaned runner directories (exist on disk but not in database)
  * This catches cases where cleanup failed partway through, leaving directories behind.
+ * Exported for use at startup and in tests.
  */
-async function cleanupOrphanedDirectories(): Promise<number> {
+export async function cleanupOrphanedDirectories(): Promise<number> {
   let removed = 0;
   
   try {

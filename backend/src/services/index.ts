@@ -88,4 +88,5 @@ export {
   startReconciler,
   stopReconciler,
   reconcileRunners,
+  cleanupOrphanedDirectories,
 } from './reconciler.js';

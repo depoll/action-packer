@@ -15,7 +15,7 @@ import {
   cleanupRunnerFiles
 } from './runnerManager.js';
 import { startDockerRunner, syncDockerRunnerStatus, isDockerAvailable, removeDockerRunner, getContainerStatus } from './dockerRunner.js';
-import { startReconciler } from './reconciler.js';
+import { startReconciler, cleanupOrphanedDirectories } from './reconciler.js';
 
 // Prepared statements
 const getAllEnabledPools = db.prepare(`
@@ -48,16 +48,22 @@ export async function initializeRunnersOnStartup(): Promise<void> {
     console.log('ℹ️  Docker not available - skipping Docker runner initialization');
   }
 
-  // 1. Clean up stale ephemeral runners FIRST (before creating new ones)
+  // 1. Clean up orphaned directories FIRST (directories without DB entries)
+  const orphanedDirsRemoved = await cleanupOrphanedDirectories();
+  if (orphanedDirsRemoved > 0) {
+    console.log(`🧹 Removed ${orphanedDirsRemoved} orphaned runner director${orphanedDirsRemoved === 1 ? 'y' : 'ies'}`);
+  }
+
+  // 2. Clean up stale ephemeral runners (before creating new ones)
   await cleanupStaleEphemeralRunners(dockerAvailable);
 
-  // 2. Handle non-ephemeral (static) runners - try to restart them
+  // 3. Handle non-ephemeral (static) runners - try to restart them
   await restartStaticRunners(dockerAvailable);
 
-  // 3. Ensure warm runners for all enabled pools
+  // 4. Ensure warm runners for all enabled pools
   await initializePoolWarmRunners(dockerAvailable);
 
-  // 4. Start the periodic reconciliation service
+  // 5. Start the periodic reconciliation service
   startReconciler();
 
   console.log('✅ Runner initialization complete');
