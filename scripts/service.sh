@@ -98,9 +98,10 @@ restart_service() {
     
     case "$OS_TYPE" in
         macos)
-            launchctl stop "$MACOS_PLIST_NAME" 2>/dev/null || true
+            # Use unload/load to fully restart and pick up any code changes
+            launchctl unload "$MACOS_PLIST_PATH" 2>/dev/null || true
             sleep 1
-            launchctl start "$MACOS_PLIST_NAME"
+            launchctl load "$MACOS_PLIST_PATH"
             ;;
         linux)
             sudo systemctl restart "$LINUX_SERVICE_NAME"
@@ -192,11 +193,11 @@ update_service() {
     echo "Project directory: $PROJECT_DIR"
     echo ""
     
-    # Stop the service
+    # Stop the service (fully unload on macOS to ensure fresh start)
     echo -e "${BLUE}Stopping service...${NC}"
     case "$OS_TYPE" in
         macos)
-            launchctl stop "$MACOS_PLIST_NAME" 2>/dev/null || true
+            launchctl unload "$MACOS_PLIST_PATH" 2>/dev/null || true
             ;;
         linux)
             sudo systemctl stop "$LINUX_SERVICE_NAME" 2>/dev/null || true
@@ -212,11 +213,11 @@ update_service() {
     echo -e "${BLUE}Building...${NC}"
     npm run build
     
-    # Start the service
+    # Start the service (fully load on macOS to pick up new code)
     echo -e "${BLUE}Starting service...${NC}"
     case "$OS_TYPE" in
         macos)
-            launchctl start "$MACOS_PLIST_NAME"
+            launchctl load "$MACOS_PLIST_PATH"
             ;;
         linux)
             sudo systemctl start "$LINUX_SERVICE_NAME"
