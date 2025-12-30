@@ -54,6 +54,7 @@ export {
   stopOrphanedRunner,
   syncRunnerStatus,
   createAndStartRunner,
+  RUNNERS_DIR,
 } from './runnerManager.js';
 
 export {
