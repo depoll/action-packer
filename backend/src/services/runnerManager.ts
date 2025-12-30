@@ -18,7 +18,7 @@ import { type GitHubRunnerDownload } from './github.js';
 import { createClientFromCredentialId, resolveCredentialById } from './credentialResolver.js';
 
 // Runner storage directory
-const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(os.homedir(), '.action-packer', 'runners');
+export const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(os.homedir(), '.action-packer', 'runners');
 
 // Track running processes
 const runningProcesses = new Map<string, ChildProcess>();

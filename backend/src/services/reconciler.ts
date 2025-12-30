@@ -6,20 +6,38 @@
  * - Webhooks were missed (network issues, server downtime)
  * - GitHub removed runners that we still have records for
  * - Local processes died without triggering our cleanup handlers
+ * - Runner directories exist on disk without corresponding database entries
  */
 
+import fs from 'fs/promises';
+import path from 'path';
 import { db, type RunnerRow, type RunnerPoolRow } from '../db/index.js';
 import { createClientFromCredentialId } from './credentialResolver.js';
-import { cleanupRunnerFiles, isRunnerProcessAlive, stopOrphanedRunner } from './runnerManager.js';
+import { cleanupRunnerFiles, isRunnerProcessAlive, stopOrphanedRunner, RUNNERS_DIR } from './runnerManager.js';
 import { removeDockerRunner, getContainerStatus } from './dockerRunner.js';
 import { ensureWarmRunners } from './autoscaler.js';
 
 // Reconciliation interval (5 minutes)
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
+// Maximum time for a single reconciliation run (2 minutes)
+const RECONCILE_TIMEOUT_MS = 2 * 60 * 1000;
+
 // Track if reconciliation is running to prevent overlap
 let isReconciling = false;
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Helper to add timeout to a promise
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error(`${operation} timed out after ${ms}ms`)), ms)
+    )
+  ]);
+}
 
 // Prepared statements
 const getAllRunners = db.prepare('SELECT * FROM runners WHERE status NOT IN (\'error\', \'removing\')');
@@ -77,31 +95,57 @@ export async function reconcileRunners(): Promise<void> {
   isReconciling = true;
   console.log('[reconciler] Starting reconciliation...');
 
+  // Wrap entire reconciliation in a timeout to prevent hanging
+  const timeoutPromise = new Promise<void>((_, reject) => {
+    setTimeout(() => reject(new Error('Reconciliation timed out')), RECONCILE_TIMEOUT_MS);
+  });
+
   try {
-    const stats = {
-      checked: 0,
-      orphanedRemoved: 0,
-      staleRemoved: 0,
-      errorsFixed: 0,
-    };
+    await Promise.race([
+      reconcileRunnersInternal(),
+      timeoutPromise
+    ]);
+  } catch (error) {
+    console.error('[reconciler] Reconciliation failed:', error);
+  } finally {
+    isReconciling = false;
+  }
+}
 
-    // Group runners by credential to minimize API calls
-    const runners = getAllRunners.all() as RunnerRow[];
-    const runnersByCredential = new Map<string, RunnerRow[]>();
-    
-    for (const runner of runners) {
-      const existing = runnersByCredential.get(runner.credential_id) || [];
-      existing.push(runner);
-      runnersByCredential.set(runner.credential_id, existing);
-    }
+/**
+ * Internal reconciliation logic (called with timeout wrapper)
+ */
+async function reconcileRunnersInternal(): Promise<void> {
+  const stats = {
+    checked: 0,
+    orphanedRemoved: 0,
+    staleRemoved: 0,
+    errorsFixed: 0,
+  };
 
-    // Check each credential's runners against GitHub
-    for (const [credentialId, localRunners] of runnersByCredential) {
-      try {
-        const client = await createClientFromCredentialId(credentialId);
-        const ghRunners = await client.listRunners();
-        const ghRunnerIds = new Set(ghRunners.map(r => r.id));
-        const ghRunnerNames = new Set(ghRunners.map(r => r.name));
+  // Group runners by credential to minimize API calls
+  const runners = getAllRunners.all() as RunnerRow[];
+  const runnersByCredential = new Map<string, RunnerRow[]>();
+  
+  for (const runner of runners) {
+    const existing = runnersByCredential.get(runner.credential_id) || [];
+    existing.push(runner);
+    runnersByCredential.set(runner.credential_id, existing);
+  }
+
+  // Check each credential's runners against GitHub (with per-credential timeout)
+  for (const [credentialId, localRunners] of runnersByCredential) {
+    try {
+      const client = await createClientFromCredentialId(credentialId);
+      
+      // Add 30s timeout for GitHub API calls
+      const ghRunners = await withTimeout(
+        client.listRunners(),
+        30000,
+        `listRunners for credential ${credentialId}`
+      );
+      const ghRunnerIds = new Set(ghRunners.map(r => r.id));
+      const ghRunnerNames = new Set(ghRunners.map(r => r.name));
 
         for (const runner of localRunners) {
           stats.checked++;
@@ -162,15 +206,19 @@ export async function reconcileRunners(): Promise<void> {
     for (const runner of staleRunners) {
       console.log(`[reconciler] Runner ${runner.name} has stale heartbeat, checking status...`);
       try {
-        // Try to sync with GitHub before cleaning up
+        // Try to sync with GitHub before cleaning up (with timeout)
         const client = await createClientFromCredentialId(runner.credential_id);
         let ghRunner;
         
         if (runner.github_runner_id) {
           try {
-            ghRunner = await client.getRunner(runner.github_runner_id);
+            ghRunner = await withTimeout(
+              client.getRunner(runner.github_runner_id),
+              15000,
+              `getRunner ${runner.github_runner_id}`
+            );
           } catch {
-            // Runner doesn't exist in GitHub
+            // Runner doesn't exist in GitHub or timed out
           }
         }
         
@@ -198,10 +246,13 @@ export async function reconcileRunners(): Promise<void> {
       }
     }
 
+    // Clean up orphaned directories (exist on disk but not in database)
+    const orphanedDirsRemoved = await cleanupOrphanedDirectories();
+    if (orphanedDirsRemoved > 0) {
+      stats.orphanedRemoved += orphanedDirsRemoved;
+    }
+
     console.log(`[reconciler] Reconciliation complete:`, stats);
-  } finally {
-    isReconciling = false;
-  }
 }
 
 /**
@@ -234,4 +285,68 @@ async function cleanupOrphanedRunner(runner: RunnerRow): Promise<void> {
   } catch (error) {
     console.error(`[reconciler] Failed to cleanup runner ${runner.name}:`, error);
   }
+}
+
+/**
+ * Clean up orphaned runner directories (exist on disk but not in database)
+ * This catches cases where cleanup failed partway through, leaving directories behind.
+ */
+async function cleanupOrphanedDirectories(): Promise<number> {
+  let removed = 0;
+  
+  try {
+    // Check if runners directory exists
+    try {
+      await fs.access(RUNNERS_DIR);
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+      return 0;
+    }
+
+    // List all directories in the runners directory
+    const entries = await fs.readdir(RUNNERS_DIR, { withFileTypes: true });
+    const directories = entries.filter(e => e.isDirectory()).map(e => e.name);
+
+    if (directories.length === 0) {
+      return 0;
+    }
+
+    // Get all runner IDs from the database
+    const dbRunners = db.prepare('SELECT id, runner_dir FROM runners').all() as { id: string; runner_dir: string | null }[];
+    const dbRunnerIds = new Set(dbRunners.map(r => r.id));
+    
+    // Also track runner directories that are in use
+    const dbRunnerDirs = new Set(
+      dbRunners
+        .filter(r => r.runner_dir)
+        .map(r => path.basename(r.runner_dir!))
+    );
+
+    // Find directories that don't have a corresponding database entry
+    for (const dir of directories) {
+      // Skip if this directory ID exists in the database or if the path is in use
+      if (dbRunnerIds.has(dir) || dbRunnerDirs.has(dir)) {
+        continue;
+      }
+
+      // This is an orphaned directory - remove it
+      const dirPath = path.join(RUNNERS_DIR, dir);
+      console.log(`[reconciler] Removing orphaned runner directory: ${dir}`);
+      
+      try {
+        await fs.rm(dirPath, { recursive: true, force: true });
+        removed++;
+      } catch (error) {
+        console.error(`[reconciler] Failed to remove orphaned directory ${dir}:`, error);
+      }
+    }
+
+    if (removed > 0) {
+      console.log(`[reconciler] Removed ${removed} orphaned runner director${removed === 1 ? 'y' : 'ies'}`);
+    }
+  } catch (error) {
+    console.error('[reconciler] Failed to clean up orphaned directories:', error);
+  }
+
+  return removed;
 }
