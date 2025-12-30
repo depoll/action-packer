@@ -81,3 +81,9 @@ export {
 export {
   initializeRunnersOnStartup,
 } from './startup.js';
+
+export {
+  startReconciler,
+  stopReconciler,
+  reconcileRunners,
+} from './reconciler.js';

@@ -422,10 +422,45 @@ export async function startRunner(runnerId: string, runnerDir: string): Promise<
       runningProcesses.delete(runnerId);
       updateRunnerProcessId.run(null, runnerId);
       
-      if (code === 0) {
-        updateRunnerStatus.run('offline', runnerId);
+      // Get runner info to check if ephemeral
+      const runner = getRunnerById.get(runnerId) as RunnerRow | undefined;
+      
+      if (runner?.ephemeral) {
+        // Ephemeral runners should be cleaned up when their process exits
+        // This happens when they finish a job (exit code 0) or encounter an error
+        console.log(`[runner] Ephemeral runner ${runner.name} exited (code: ${code}), cleaning up...`);
+        
+        // Clean up the runner record and files (async, fire-and-forget)
+        (async () => {
+          try {
+            // Delete runner directory
+            if (runner.runner_dir) {
+              await fs.rm(runner.runner_dir, { recursive: true, force: true }).catch(() => {});
+            }
+            
+            // Delete database record
+            db.prepare('DELETE FROM runners WHERE id = ?').run(runnerId);
+            console.log(`[runner] Cleaned up ephemeral runner ${runner.name}`);
+            
+            // Ensure warm runners for the pool (use dynamic import to avoid circular dependency)
+            if (runner.pool_id) {
+              const { ensureWarmRunners, getPoolById } = await import('./autoscaler.js');
+              const pool = getPoolById(runner.pool_id);
+              if (pool) {
+                await ensureWarmRunners(pool);
+              }
+            }
+          } catch (error) {
+            console.error(`[runner] Failed to cleanup ephemeral runner ${runner.name}:`, error);
+          }
+        })();
       } else {
-        updateRunnerError.run(`Runner exited with code ${code}`, runnerId);
+        // Non-ephemeral runners just update status
+        if (code === 0) {
+          updateRunnerStatus.run('offline', runnerId);
+        } else {
+          updateRunnerError.run(`Runner exited with code ${code}`, runnerId);
+        }
       }
     });
     
