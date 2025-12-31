@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   Download,
+  Copy,
   Radio,
   Wifi,
   WifiOff,
@@ -150,6 +151,27 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
     }
   };
 
+  const handleCopy = async () => {
+    const logs = isStreaming ? streamLogs : (initialData?.logs || []);
+    const content = logs
+      .map((l) => `${l.timestamp} ${l.message}`)
+      .join('\n');
+    
+    try {
+      await navigator.clipboard.writeText(content);
+      // Optional: Show success feedback (you could add a toast notification here)
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      // Fallback: select and copy manually
+      const textarea = document.createElement('textarea');
+      textarea.value = content;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  };
+
   const handleDownload = () => {
     const logs = isStreaming ? streamLogs : (initialData?.logs || []);
     const content = logs
@@ -224,6 +246,11 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
             {/* Refresh */}
             <button onClick={handleRefresh} className="btn btn-secondary" title="Refresh">
               <RefreshCw className="h-4 w-4" />
+            </button>
+
+            {/* Copy */}
+            <button onClick={handleCopy} className="btn btn-secondary" title="Copy logs to clipboard">
+              <Copy className="h-4 w-4" />
             </button>
 
             {/* Download */}
