@@ -11,11 +11,13 @@ import {
   Play,
   Download,
   Copy,
+  Check,
   Radio,
   Wifi,
   WifiOff,
 } from 'lucide-react';
 import { logsApi } from '../api';
+import { useCopyToClipboard } from '../hooks';
 import type { Runner, RunnerLogEntry } from '../types';
 
 interface RunnerLogsModalProps {
@@ -34,6 +36,7 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   // Use ref for isPaused to avoid closure issues in event handlers
   const isPausedRef = useRef(isPaused);
+  const { copied, copyToClipboard } = useCopyToClipboard();
   
   // Keep ref in sync with state
   useEffect(() => {
@@ -151,25 +154,12 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
     }
   };
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     const logs = isStreaming ? streamLogs : (initialData?.logs || []);
     const content = logs
       .map((l) => `${l.timestamp} ${l.message}`)
       .join('\n');
-    
-    try {
-      await navigator.clipboard.writeText(content);
-      // Optional: Show success feedback (you could add a toast notification here)
-    } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
-      // Fallback: select and copy manually
-      const textarea = document.createElement('textarea');
-      textarea.value = content;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
+    copyToClipboard(content);
   };
 
   const handleDownload = () => {
@@ -249,8 +239,12 @@ export function RunnerLogsModal({ runner, onClose }: RunnerLogsModalProps) {
             </button>
 
             {/* Copy */}
-            <button onClick={handleCopy} className="btn btn-secondary" title="Copy logs to clipboard">
-              <Copy className="h-4 w-4" />
+            <button
+              onClick={handleCopy}
+              className={`btn ${copied ? 'btn-primary' : 'btn-secondary'}`}
+              title={copied ? 'Copied!' : 'Copy logs to clipboard'}
+            >
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </button>
 
             {/* Download */}

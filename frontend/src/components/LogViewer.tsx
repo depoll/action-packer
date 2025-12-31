@@ -11,6 +11,7 @@ import {
   Play,
   Download,
   Copy,
+  Check,
   Filter,
   ChevronDown,
   AlertCircle,
@@ -19,7 +20,7 @@ import {
   Bug,
 } from 'lucide-react';
 import { logsApi } from '../api';
-import { useWebSocket } from '../hooks';
+import { useWebSocket, useCopyToClipboard } from '../hooks';
 import type { LogEntry, LogLevel } from '../types';
 
 const levelColors: Record<LogLevel, string> = {
@@ -79,6 +80,7 @@ export function LogViewer() {
   const [autoScroll, setAutoScroll] = useState(true);
   const queryClient = useQueryClient();
   const { lastMessage } = useWebSocket();
+  const { copied, copyToClipboard } = useCopyToClipboard();
 
   // Close filter menu when clicking outside
   useEffect(() => {
@@ -170,25 +172,12 @@ export function LogViewer() {
     queryClient.invalidateQueries({ queryKey: ['logs'] });
   };
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     const filteredLogs = filter === 'all' ? logs : logs.filter((l) => l.level === filter);
     const content = filteredLogs
       .map((l) => `${l.timestamp} [${l.level.toUpperCase()}] ${l.message}`)
       .join('\n');
-    
-    try {
-      await navigator.clipboard.writeText(content);
-      // Optional: Show success feedback (you could add a toast notification here)
-    } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
-      // Fallback: select and copy manually
-      const textarea = document.createElement('textarea');
-      textarea.value = content;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
+    copyToClipboard(content);
   };
 
   const handleDownload = () => {
@@ -303,8 +292,12 @@ export function LogViewer() {
           </button>
 
           {/* Copy */}
-          <button onClick={handleCopy} className="btn btn-secondary" title="Copy logs to clipboard">
-            <Copy className="h-4 w-4" />
+          <button
+            onClick={handleCopy}
+            className={`btn ${copied ? 'btn-primary' : 'btn-secondary'}`}
+            title={copied ? 'Copied!' : 'Copy logs to clipboard'}
+          >
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </button>
 
           {/* Download */}
