@@ -2,11 +2,22 @@
  * Test setup and utilities
  */
 
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import { vi } from 'vitest';
 
 // Mock environment for tests
 process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 process.env.NODE_ENV = 'test';
+
+// Keep tests isolated from any developer/host Action Packer state.
+process.env.ACTION_PACKER_HOME = path.join(os.tmpdir(), `action-packer-test-home-${process.pid}`);
+process.env.DATA_DIR = path.join(process.env.ACTION_PACKER_HOME, 'data');
+
+// Best-effort cleanup from previous runs (same PID reuse is rare, but cheap to handle).
+await fs.rm(process.env.ACTION_PACKER_HOME, { recursive: true, force: true }).catch(() => {});
+await fs.mkdir(process.env.DATA_DIR, { recursive: true });
 
 // Mock GitHub client
 vi.mock('../src/services/github.js', () => ({

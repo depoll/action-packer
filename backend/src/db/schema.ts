@@ -6,13 +6,43 @@ import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Database file location - store in data directory
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
-const DB_PATH = path.join(DATA_DIR, 'action-packer.db');
+// Database file location
+//
+// Important: runners default to ~/.action-packer/runners (see runnerManager).
+// To avoid multi-instance corruption (different DB + shared runner dirs), the
+// default DB location should live under the same base directory.
+//
+// Operators can override with DATA_DIR (or ACTION_PACKER_HOME).
+const ACTION_PACKER_HOME =
+  process.env.ACTION_PACKER_HOME || path.join(os.homedir(), '.action-packer');
+const DEFAULT_DATA_DIR = path.join(ACTION_PACKER_HOME, 'data');
+
+// Legacy default (repo-local). Kept for one-time migration.
+const LEGACY_DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const LEGACY_DB_PATH = path.join(LEGACY_DATA_DIR, 'action-packer.db');
+
+let DATA_DIR = process.env.DATA_DIR || DEFAULT_DATA_DIR;
+let DB_PATH = path.join(DATA_DIR, 'action-packer.db');
+
+// If DATA_DIR is not explicitly set, migrate the legacy DB into the new default
+// location the first time we run.
+if (!process.env.DATA_DIR) {
+  const newDbPath = path.join(DEFAULT_DATA_DIR, 'action-packer.db');
+  if (!fs.existsSync(newDbPath) && fs.existsSync(LEGACY_DB_PATH)) {
+    fs.mkdirSync(DEFAULT_DATA_DIR, { recursive: true });
+    fs.copyFileSync(LEGACY_DB_PATH, newDbPath);
+    // Log to aid debugging during upgrades.
+    console.log(`[db] Migrated legacy database to ${newDbPath}`);
+  }
+
+  DATA_DIR = DEFAULT_DATA_DIR;
+  DB_PATH = newDbPath;
+}
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {

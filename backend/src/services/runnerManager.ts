@@ -18,7 +18,10 @@ import { type GitHubRunnerDownload } from './github.js';
 import { createClientFromCredentialId, resolveCredentialById } from './credentialResolver.js';
 
 // Runner storage directory
-export const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(os.homedir(), '.action-packer', 'runners');
+// Keep defaults consistent with DB default location (see db/schema.ts).
+export const ACTION_PACKER_HOME =
+  process.env.ACTION_PACKER_HOME || path.join(os.homedir(), '.action-packer');
+export const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(ACTION_PACKER_HOME, 'runners');
 
 /**
  * Get the cache directory paths for a specific runner.
