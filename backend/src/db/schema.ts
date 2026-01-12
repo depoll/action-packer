@@ -65,11 +65,17 @@ if (!process.env.DATA_DIR) {
         `[db] Failed to migrate legacy database from ${LEGACY_DB_PATH} to ${newDbPath}:`,
         error
       );
+      // Fall back to legacy location so we don't start with a missing DB.
+      DATA_DIR = LEGACY_DATA_DIR;
+      DB_PATH = LEGACY_DB_PATH;
     }
   }
 
-  DATA_DIR = DEFAULT_DATA_DIR;
-  DB_PATH = newDbPath;
+  // Only update to new paths if we didn't fall back above.
+  if (!DATA_DIR) {
+    DATA_DIR = DEFAULT_DATA_DIR;
+    DB_PATH = newDbPath;
+  }
 } else {
   DATA_DIR = process.env.DATA_DIR;
   DB_PATH = path.join(DATA_DIR, 'action-packer.db');
