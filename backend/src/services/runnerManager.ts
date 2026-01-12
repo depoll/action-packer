@@ -6,7 +6,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import os from 'os';
 import https from 'https';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';

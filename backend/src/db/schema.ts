@@ -25,12 +25,16 @@ const DEFAULT_DATA_DIR = getDefaultDataDir(ACTION_PACKER_HOME);
 const LEGACY_DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const LEGACY_DB_PATH = path.join(LEGACY_DATA_DIR, 'action-packer.db');
 
-let DATA_DIR: string;
-let DB_PATH: string;
+// Resolve DATA_DIR and DB_PATH, handling legacy migration if needed.
+function resolvePaths(): { dataDir: string; dbPath: string } {
+  // If DATA_DIR is explicitly set, use it directly.
+  if (process.env.DATA_DIR) {
+    return {
+      dataDir: process.env.DATA_DIR,
+      dbPath: path.join(process.env.DATA_DIR, 'action-packer.db'),
+    };
+  }
 
-// If DATA_DIR is not explicitly set, migrate the legacy DB into the new default
-// location the first time we run.
-if (!process.env.DATA_DIR) {
   const newDbPath = path.join(DEFAULT_DATA_DIR, 'action-packer.db');
   const shouldMigrate = !fs.existsSync(newDbPath) && fs.existsSync(LEGACY_DB_PATH);
 
@@ -66,20 +70,14 @@ if (!process.env.DATA_DIR) {
         error
       );
       // Fall back to legacy location so we don't start with a missing DB.
-      DATA_DIR = LEGACY_DATA_DIR;
-      DB_PATH = LEGACY_DB_PATH;
+      return { dataDir: LEGACY_DATA_DIR, dbPath: LEGACY_DB_PATH };
     }
   }
 
-  // Only update to new paths if we didn't fall back above.
-  if (!DATA_DIR) {
-    DATA_DIR = DEFAULT_DATA_DIR;
-    DB_PATH = newDbPath;
-  }
-} else {
-  DATA_DIR = process.env.DATA_DIR;
-  DB_PATH = path.join(DATA_DIR, 'action-packer.db');
+  return { dataDir: DEFAULT_DATA_DIR, dbPath: newDbPath };
 }
+
+const { dataDir: DATA_DIR, dbPath: DB_PATH } = resolvePaths();
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
