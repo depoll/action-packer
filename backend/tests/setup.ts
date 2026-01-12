@@ -43,6 +43,15 @@ vi.mock('../src/services/github.js', () => ({
     }),
     deleteRunner: vi.fn().mockResolvedValue(true),
     setRunnerLabels: vi.fn().mockResolvedValue([]),
+    getRunnerDownloads: vi.fn().mockResolvedValue([
+      {
+        os: 'osx',
+        architecture: 'arm64',
+        download_url: 'https://github.com/actions/runner/releases/download/v2.300.0/actions-runner-osx-arm64-2.300.0.tar.gz',
+        filename: 'actions-runner-osx-arm64-2.300.0.tar.gz',
+        sha256_checksum: 'abc123',
+      },
+    ]),
     listRepositories: vi.fn().mockResolvedValue({
       total_count: 0,
       repositories: [],
