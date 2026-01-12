@@ -6,13 +6,78 @@ import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { getActionPackerHome, getDefaultDataDir } from '../config/paths.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Database file location - store in data directory
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
-const DB_PATH = path.join(DATA_DIR, 'action-packer.db');
+// Database file location
+//
+// Important: runners default to ~/.action-packer/runners (see runnerManager).
+// To avoid multi-instance corruption (different DB + shared runner dirs), the
+// default DB location should live under the same base directory.
+//
+// Operators can override with DATA_DIR (or ACTION_PACKER_HOME).
+const ACTION_PACKER_HOME = getActionPackerHome();
+const DEFAULT_DATA_DIR = getDefaultDataDir(ACTION_PACKER_HOME);
+
+// Legacy default (repo-local). Kept for one-time migration.
+const LEGACY_DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const LEGACY_DB_PATH = path.join(LEGACY_DATA_DIR, 'action-packer.db');
+
+// Resolve DATA_DIR and DB_PATH, handling legacy migration if needed.
+function resolvePaths(): { dataDir: string; dbPath: string } {
+  // If DATA_DIR is explicitly set, use it directly.
+  if (process.env.DATA_DIR) {
+    return {
+      dataDir: process.env.DATA_DIR,
+      dbPath: path.join(process.env.DATA_DIR, 'action-packer.db'),
+    };
+  }
+
+  const newDbPath = path.join(DEFAULT_DATA_DIR, 'action-packer.db');
+  const shouldMigrate = !fs.existsSync(newDbPath) && fs.existsSync(LEGACY_DB_PATH);
+
+  if (shouldMigrate) {
+    // Best-effort: be robust to multiple processes starting at once.
+    // Copy into a temporary file then atomically rename into place.
+    const tmpDbPath = `${newDbPath}.tmp-${process.pid}-${Date.now()}`;
+
+    try {
+      fs.mkdirSync(DEFAULT_DATA_DIR, { recursive: true });
+      fs.copyFileSync(LEGACY_DB_PATH, tmpDbPath);
+
+      try {
+        fs.renameSync(tmpDbPath, newDbPath);
+        console.log(`[db] Migrated legacy database to ${newDbPath}`);
+      } catch (error) {
+        // Another process likely won the race. Remove our temp file.
+        try {
+          fs.unlinkSync(tmpDbPath);
+        } catch {
+          // ignore
+        }
+
+        // If the destination still doesn't exist, rethrow so we don't silently
+        // proceed with a missing DB.
+        if (!fs.existsSync(newDbPath)) {
+          throw error;
+        }
+      }
+    } catch (error) {
+      console.error(
+        `[db] Failed to migrate legacy database from ${LEGACY_DB_PATH} to ${newDbPath}:`,
+        error
+      );
+      // Fall back to legacy location so we don't start with a missing DB.
+      return { dataDir: LEGACY_DATA_DIR, dbPath: LEGACY_DB_PATH };
+    }
+  }
+
+  return { dataDir: DEFAULT_DATA_DIR, dbPath: newDbPath };
+}
+
+const { dataDir: DATA_DIR, dbPath: DB_PATH } = resolvePaths();
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {

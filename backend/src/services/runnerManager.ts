@@ -1,9 +1,11 @@
 /**
  * Native runner manager service
- * Handles downloading, configuring, and managing GitHub Actions runners
+ * 
+ * Handles downloading, configuring, and managing GitHub Actions runners.
+ * Uses shared path configuration from config/paths.ts.
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
@@ -16,9 +18,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { db, type RunnerRow } from '../db/index.js';
 import { type GitHubRunnerDownload } from './github.js';
 import { createClientFromCredentialId, resolveCredentialById } from './credentialResolver.js';
+import { getActionPackerHome, getDefaultRunnersDir } from '../config/paths.js';
 
 // Runner storage directory
-export const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(os.homedir(), '.action-packer', 'runners');
+// Keep defaults consistent with DB default location (see db/schema.ts).
+export const ACTION_PACKER_HOME = getActionPackerHome();
+export const RUNNERS_DIR = process.env.RUNNERS_DIR || getDefaultRunnersDir(ACTION_PACKER_HOME);
 
 /**
  * Get the cache directory paths for a specific runner.
