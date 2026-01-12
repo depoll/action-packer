@@ -1,9 +1,11 @@
 /**
  * Native runner manager service
- * Handles downloading, configuring, and managing GitHub Actions runners
+ * 
+ * Handles downloading, configuring, and managing GitHub Actions runners.
+ * Uses shared path configuration from config/paths.ts.
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import https from 'https';
