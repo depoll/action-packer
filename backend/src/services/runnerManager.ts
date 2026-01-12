@@ -16,12 +16,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { db, type RunnerRow } from '../db/index.js';
 import { type GitHubRunnerDownload } from './github.js';
 import { createClientFromCredentialId, resolveCredentialById } from './credentialResolver.js';
+import { getActionPackerHome, getDefaultRunnersDir } from '../config/paths.js';
 
 // Runner storage directory
 // Keep defaults consistent with DB default location (see db/schema.ts).
-export const ACTION_PACKER_HOME =
-  process.env.ACTION_PACKER_HOME || path.join(os.homedir(), '.action-packer');
-export const RUNNERS_DIR = process.env.RUNNERS_DIR || path.join(ACTION_PACKER_HOME, 'runners');
+export const ACTION_PACKER_HOME = getActionPackerHome();
+export const RUNNERS_DIR = process.env.RUNNERS_DIR || getDefaultRunnersDir(ACTION_PACKER_HOME);
 
 /**
  * Get the cache directory paths for a specific runner.
