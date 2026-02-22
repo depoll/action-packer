@@ -441,7 +441,12 @@ export async function downloadRunner(
   }
   
   // Cleanup archive
-  await fs.unlink(archivePath);
+  await fs.unlink(archivePath).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      throw error;
+    }
+  });
   
   // Update runner directory in database
   updateRunnerDir.run(runnerDir, runnerId);

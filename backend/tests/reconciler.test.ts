@@ -7,6 +7,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { db } from '../src/db/index.js';
+import { shouldSkipGitHubExistenceCheck } from '../src/services/reconciler.js';
 
 // Test directory for runner cleanup tests
 const TEST_RUNNERS_DIR = path.join(os.tmpdir(), 'action-packer-test-runners');
@@ -16,6 +17,18 @@ let cleanupOrphanedDirectories: () => Promise<number>;
 let withTimeout: <T>(promise: Promise<T>, ms: number, operation: string) => Promise<T>;
 
 describe('Reconciler', () => {
+  describe('shouldSkipGitHubExistenceCheck', () => {
+    it('skips pending and configuring runners', () => {
+      expect(shouldSkipGitHubExistenceCheck('pending')).toBe(true);
+      expect(shouldSkipGitHubExistenceCheck('configuring')).toBe(true);
+    });
+
+    it('does not skip online/offline runners', () => {
+      expect(shouldSkipGitHubExistenceCheck('online')).toBe(false);
+      expect(shouldSkipGitHubExistenceCheck('offline')).toBe(false);
+    });
+  });
+
   describe('withTimeout', () => {
     beforeEach(async () => {
       // Dynamically import to get fresh module
