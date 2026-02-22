@@ -55,6 +55,10 @@ const getAllEnabledPools = db.prepare('SELECT * FROM runner_pools WHERE enabled 
 const deleteRunner = db.prepare('DELETE FROM runners WHERE id = ?');
 const updateRunnerStatus = db.prepare('UPDATE runners SET status = ?, updated_at = datetime(\'now\') WHERE id = ?');
 
+export function shouldSkipGitHubExistenceCheck(status: string): boolean {
+  return status === 'pending' || status === 'configuring';
+}
+
 /**
  * Start the periodic reconciliation service
  */
@@ -156,6 +160,11 @@ async function reconcileRunnersInternal(): Promise<void> {
 
         for (const runner of localRunners) {
           stats.checked++;
+
+          // Newly provisioning runners are expected to not exist in GitHub yet.
+          if (shouldSkipGitHubExistenceCheck(runner.status)) {
+            continue;
+          }
 
           // Check if runner exists in GitHub (by ID or name)
           const existsInGitHub = 

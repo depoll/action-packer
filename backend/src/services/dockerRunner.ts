@@ -89,33 +89,6 @@ export async function pullRunnerImage(
 ): Promise<string> {
   const d = initDocker();
   const platform = `linux/${architecture}`;
-
-  const splitImageRef = (ref: string): { repo: string; tag: string } => {
-    const lastColon = ref.lastIndexOf(':');
-    const lastSlash = ref.lastIndexOf('/');
-    if (lastColon > lastSlash) {
-      return { repo: ref.slice(0, lastColon), tag: ref.slice(lastColon + 1) };
-    }
-    return { repo: ref, tag: 'latest' };
-  };
-
-  const { repo, tag: originalTag } = splitImageRef(RUNNER_IMAGE);
-  const archTag = `${originalTag}-${architecture}`;
-  const platformTag = `${repo}:${archTag}`;
-  
-  // Check if we already have the platform-specific tag with correct architecture
-  try {
-    const existingImage = await d.getImage(platformTag).inspect();
-    const imageArch = normalizeImageArchitecture(existingImage.Architecture);
-    
-    if (imageArch === architecture) {
-      console.log(`Image ${platformTag} already exists with correct architecture (${existingImage.Architecture})`);
-      return platformTag;
-    }
-    console.log(`Image ${platformTag} exists but has wrong architecture (${existingImage.Architecture}), re-pulling...`);
-  } catch {
-    // Image doesn't exist, need to pull
-  }
   
   console.log(`Pulling image ${RUNNER_IMAGE} for ${platform}...`);
   
@@ -140,23 +113,8 @@ export async function pullRunnerImage(
       });
     });
   });
-  
-  // Verify the pulled image has the correct architecture
-  const pulledImage = await d.getImage(RUNNER_IMAGE).inspect();
-  console.log(`Pulled image architecture: ${pulledImage.Architecture}`);
-  assertImageArchitecture(RUNNER_IMAGE, pulledImage.Architecture, architecture);
-  
-  // Tag the pulled image with architecture-specific tag
-  console.log(`Tagging image as ${platformTag}...`);
-  const image = d.getImage(RUNNER_IMAGE);
-  await image.tag({ repo, tag: archTag });
-  
-  // Verify the tagged image
-  const taggedImage = await d.getImage(platformTag).inspect();
-  console.log(`Tagged image ${platformTag} architecture: ${taggedImage.Architecture}`);
-  assertImageArchitecture(platformTag, taggedImage.Architecture, architecture);
-  
-  return platformTag;
+
+  return RUNNER_IMAGE;
 }
 
 /**
