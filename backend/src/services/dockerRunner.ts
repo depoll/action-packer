@@ -9,6 +9,7 @@ import { resolveCredentialById, createClientFromCredentialId } from './credentia
 
 // Docker client
 let docker: Docker | null = null;
+export type DockerArch = 'amd64' | 'arm64';
 
 // Runner image name
 const RUNNER_IMAGE = process.env.RUNNER_IMAGE || 'myoung34/github-runner:latest';
@@ -63,13 +64,28 @@ export async function getDockerInfo(): Promise<object | null> {
   }
 }
 
+export function normalizeImageArchitecture(architecture: string): string {
+  if (architecture === 'aarch64') return 'arm64';
+  if (architecture === 'x86_64') return 'amd64';
+  return architecture;
+}
+
+export function assertImageArchitecture(imageRef: string, actualArchitecture: string, expectedArchitecture: DockerArch): void {
+  const normalized = normalizeImageArchitecture(actualArchitecture);
+  if (normalized !== expectedArchitecture) {
+    throw new Error(
+      `Image ${imageRef} architecture mismatch: expected ${expectedArchitecture}, got ${actualArchitecture}`
+    );
+  }
+}
+
 /**
  * Pull the runner image for the specified platform
  * Note: Docker multi-arch images require explicit platform handling.
  * We pull with --platform and verify the architecture before use.
  */
 export async function pullRunnerImage(
-  architecture: 'amd64' | 'arm64' = 'amd64'
+  architecture: DockerArch = 'amd64'
 ): Promise<string> {
   const d = initDocker();
   const platform = `linux/${architecture}`;
@@ -90,14 +106,13 @@ export async function pullRunnerImage(
   // Check if we already have the platform-specific tag with correct architecture
   try {
     const existingImage = await d.getImage(platformTag).inspect();
-    const imageArch = existingImage.Architecture;
-    const normalizedImageArch = imageArch === 'aarch64' ? 'arm64' : imageArch;
+    const imageArch = normalizeImageArchitecture(existingImage.Architecture);
     
-    if (normalizedImageArch === architecture) {
-      console.log(`Image ${platformTag} already exists with correct architecture (${imageArch})`);
+    if (imageArch === architecture) {
+      console.log(`Image ${platformTag} already exists with correct architecture (${existingImage.Architecture})`);
       return platformTag;
     }
-    console.log(`Image ${platformTag} exists but has wrong architecture (${imageArch}), re-pulling...`);
+    console.log(`Image ${platformTag} exists but has wrong architecture (${existingImage.Architecture}), re-pulling...`);
   } catch {
     // Image doesn't exist, need to pull
   }
@@ -129,6 +144,7 @@ export async function pullRunnerImage(
   // Verify the pulled image has the correct architecture
   const pulledImage = await d.getImage(RUNNER_IMAGE).inspect();
   console.log(`Pulled image architecture: ${pulledImage.Architecture}`);
+  assertImageArchitecture(RUNNER_IMAGE, pulledImage.Architecture, architecture);
   
   // Tag the pulled image with architecture-specific tag
   console.log(`Tagging image as ${platformTag}...`);
@@ -138,6 +154,7 @@ export async function pullRunnerImage(
   // Verify the tagged image
   const taggedImage = await d.getImage(platformTag).inspect();
   console.log(`Tagged image ${platformTag} architecture: ${taggedImage.Architecture}`);
+  assertImageArchitecture(platformTag, taggedImage.Architecture, architecture);
   
   return platformTag;
 }
@@ -171,6 +188,7 @@ export async function createDockerRunner(
   if (dockerArch !== 'amd64' && dockerArch !== 'arm64') {
     throw new Error(`Unsupported Docker architecture: ${architecture}`);
   }
+  const platform = `linux/${dockerArch}`;
   
   // Resolve credential and get token
   const resolved = await resolveCredentialById(credentialId);
@@ -247,6 +265,7 @@ export async function createDockerRunner(
     // Create container using the architecture-specific image tag
     const container = await d.createContainer({
       Image: imageTag,
+      platform,
       name: `action-packer-${runnerId}`,
       Env: env,
       HostConfig: hostConfig,
